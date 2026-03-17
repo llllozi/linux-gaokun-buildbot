@@ -108,14 +108,16 @@ jobs:
             --setopt=install_weak_deps=False \
             --setopt=cachedir=$HOME/.cache/dnf \
             --setopt=reposdir=/dev/null \
+            --setopt=fastestmirror=False \
+            --setopt=deltarpm=False \
             --setopt=fedora.gpgcheck=1 \
             --setopt=fedora.repo_gpgcheck=0 \
             --setopt=fedora.gpgkey=file://${FEDORA_KEY_FILE} \
             --setopt=updates.gpgcheck=1 \
             --setopt=updates.repo_gpgcheck=0 \
             --setopt=updates.gpgkey=file://${FEDORA_KEY_FILE} \
-            --repofrompath=fedora,https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_RELEASE}/Everything/aarch64/os/ \
-            --repofrompath=updates,https://download.fedoraproject.org/pub/fedora/linux/updates/${FEDORA_RELEASE}/Everything/aarch64/ \
+            --repofrompath=fedora,https://dl.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_RELEASE}/Everything/aarch64/os/ \
+            --repofrompath=updates,https://dl.fedoraproject.org/pub/fedora/linux/updates/${FEDORA_RELEASE}/Everything/aarch64/ \
             install \
             systemd passwd dnf NetworkManager sudo \
             linux-firmware bluez udev dracut dracut-network \
