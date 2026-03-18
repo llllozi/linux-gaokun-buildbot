@@ -5,7 +5,7 @@ Build scripts, patches, tools, and firmware for Linux images targeting the Huawe
 ## What is included
 
 - `gaokun-patches/`: kernel patches and device support changes
-- `firmware-huawei-gaokun3_minimal/`: minimal firmware bundle used by the image build
+- `firmware/`: minimal firmware bundle used by the image build
 - `tools/`: device-specific helper scripts and service files
 - `scripts/ci/`: workflow build, image creation, and packaging scripts
 

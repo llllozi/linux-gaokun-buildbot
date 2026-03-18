@@ -8,7 +8,7 @@ set -euo pipefail
 : "${ROOTFS_DIR:?missing ROOTFS_DIR}"
 
 KREL="$(cat "$WORKDIR/kernel-release.txt")"
-FW_REPO="${FW_REPO:-$GAOKUN_DIR/firmware-huawei-gaokun3_minimal}"
+FW_REPO="${FW_REPO:-$GAOKUN_DIR/firmware}"
 
 if [[ "$(uname -m)" == "aarch64" ]]; then
   CROSS_COMPILE=""

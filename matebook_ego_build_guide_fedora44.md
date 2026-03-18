@@ -15,7 +15,7 @@
 
 - `gaokun-patches/`
 - `tools/`
-- `firmware-huawei-gaokun3_minimal/`
+- `firmware/`
 
 如果宿主机是 arm64，可直接原生构建。  
 如果宿主机是 x86_64，请自行准备可用的 aarch64 交叉工具链，并在编译内核时额外设置 `CROSS_COMPILE`。
@@ -52,7 +52,7 @@ export GAOKUN_DIR=~/gaokun/linux-gaokun-build
 export WORKDIR=~/gaokun/matebook-build-fedora
 export KERN_SRC=~/gaokun/mainline-linux
 export KERN_OUT=$GAOKUN_DIR/kernel-out
-export FW_REPO=$GAOKUN_DIR/firmware-huawei-gaokun3_minimal
+export FW_REPO=$GAOKUN_DIR/firmware
 export ROOTFS_DIR=$WORKDIR/rootfs
 export IMAGE_FILE=$WORKDIR/fedora-44-gaokun3.img
 ```
@@ -92,17 +92,12 @@ echo $KREL
 mkdir -p $ROOTFS_DIR
 
 sudo dnf --installroot=$ROOTFS_DIR --releasever=44 --forcearch=aarch64 --use-host-config -y \
-    --exclude=gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,showtime,decibels,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
+    --exclude=gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
     install \
-    @gnome-desktop \
-    passwd dnf sudo udev \
-    bluez dracut dracut-network btrfs-progs \
-    grub2-efi-aa64 grub2-efi-aa64-modules efibootmgr shim-aa64 \
-    wpa_supplicant iw wireless-regdb \
-    gnome-tweaks flatpak google-noto-sans-cjk-fonts adwaita-mono-fonts \
-    fcitx5-chinese-addons fcitx5-configtool \
-    parted iproute net-tools traceroute ncat telnet iputils which \
-    f44-backgrounds-gnome mpv vim git openssh-server curl htop fastfetch screen nano firefox
+    @core @standard @gnome-desktop \
+    grub2-efi-aa64-modules efibootmgr shim-aa64 \
+    gnome-tweaks langpacks-zh_CN fcitx5-chinese-addons \
+    telnet mpv v4l-utils vim git htop fastfetch screen firefox
 ```
 
 安装内核、模块、固件和本地工具：

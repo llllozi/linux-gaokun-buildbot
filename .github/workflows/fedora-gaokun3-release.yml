@@ -30,7 +30,7 @@ jobs:
       KERN_OUT: ${{ github.workspace }}/build-fedora/kernel-out
       ROOTFS_DIR: ${{ github.workspace }}/build-fedora/rootfs
       ARTIFACT_DIR: ${{ github.workspace }}/build-fedora/artifacts
-      FW_REPO: ${{ github.workspace }}/firmware-huawei-gaokun3_minimal
+      FW_REPO: ${{ github.workspace }}/firmware
       IMAGE_FILE: ${{ github.workspace }}/build-fedora/fedora-${{ github.event.inputs.fedora_release }}-gaokun3.img
 
     steps:
@@ -104,17 +104,12 @@ jobs:
             --setopt=updates.gpgkey=file://${FEDORA_KEY_FILE} \
             --repofrompath=fedora,https://dl.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_RELEASE}/Everything/aarch64/os/ \
             --repofrompath=updates,https://dl.fedoraproject.org/pub/fedora/linux/updates/${FEDORA_RELEASE}/Everything/aarch64/ \
-            --exclude=gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,showtime,decibels,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
+            --exclude=gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
             install \
-            @gnome-desktop fedora-release-common fedora-repos \
-            passwd dnf sudo udev \
-            bluez dracut dracut-network btrfs-progs \
-            grub2-efi-aa64 grub2-efi-aa64-modules efibootmgr shim-aa64 \
-            wpa_supplicant iw wireless-regdb \
-            gnome-tweaks flatpak google-noto-sans-cjk-fonts adwaita-mono-fonts \
-            fcitx5-chinese-addons fcitx5-configtool \
-            parted iproute net-tools traceroute ncat telnet iputils which \
-            mpv vim git openssh-server curl htop fastfetch screen nano firefox
+            @core @standard @gnome-desktop \
+            grub2-efi-aa64-modules efibootmgr shim-aa64 \
+            gnome-tweaks langpacks-zh_CN fcitx5-chinese-addons \
+            telnet mpv v4l-utils vim git htop fastfetch screen firefox
 
       - name: Populate rootfs (kernel + firmware + tools)
         run: |
