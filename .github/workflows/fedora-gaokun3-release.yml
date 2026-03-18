@@ -55,15 +55,21 @@ jobs:
             dnf curl jq \
             parted dosfstools e2fsprogs btrfs-progs zstd xz-utils python3
 
-      - name: Restore caches
+      - name: Restore ccache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.ccache
-            ~/.cache/dnf
-          key: gaokun3-fedora-${{ env.FEDORA_RELEASE }}-${{ env.KERNEL_TAG }}-${{ hashFiles('gaokun-patches/*.patch', 'scripts/ci/*.sh', 'tools/**', 'firmware-huawei-gaokun3_minimal/**') }}
+          path: ~/.ccache
+          key: gaokun3-ccache-${{ env.KERNEL_TAG }}-${{ hashFiles('gaokun-patches/*.patch', 'scripts/ci/20_build_kernel.sh') }}
           restore-keys: |
-            gaokun3-fedora-${{ env.FEDORA_RELEASE }}-${{ env.KERNEL_TAG }}-
+            gaokun3-ccache-${{ env.KERNEL_TAG }}-
+            gaokun3-ccache-
+
+      - name: Restore dnf cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dnf
+          key: gaokun3-fedora-${{ env.FEDORA_RELEASE }}-${{ hashFiles('scripts/ci/*.sh', 'tools/**', 'firmware-huawei-gaokun3_minimal/**') }}
+          restore-keys: |
             gaokun3-fedora-${{ env.FEDORA_RELEASE }}-
 
       - name: Prepare build workspace
