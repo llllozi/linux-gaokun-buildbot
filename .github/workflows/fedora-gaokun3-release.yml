@@ -35,10 +35,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout Linux source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: torvalds/linux
           ref: ${{ env.KERNEL_TAG }}
@@ -56,7 +56,7 @@ jobs:
             parted dosfstools e2fsprogs btrfs-progs zstd xz-utils python3
 
       - name: Restore ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ccache
           key: gaokun3-ccache-${{ env.KERNEL_TAG }}-${{ hashFiles('gaokun-patches/*.patch', 'scripts/ci/20_build_kernel.sh') }}
@@ -65,7 +65,7 @@ jobs:
             gaokun3-ccache-
 
       - name: Restore dnf cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/dnf
           key: gaokun3-fedora-${{ env.FEDORA_RELEASE }}-${{ hashFiles('scripts/ci/*.sh', 'tools/**', 'firmware-huawei-gaokun3_minimal/**') }}
@@ -114,7 +114,7 @@ jobs:
             --setopt=updates.gpgkey=file://${FEDORA_KEY_FILE} \
             --repofrompath=fedora,https://dl.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_RELEASE}/Everything/aarch64/os/ \
             --repofrompath=updates,https://dl.fedoraproject.org/pub/fedora/linux/updates/${FEDORA_RELEASE}/Everything/aarch64/ \
-            --exclude=gnome-boxes,gnome-connections,snapshot,gnome-weather,showtime,decibels,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
+            --exclude=gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,showtime,decibels,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
             install \
             @gnome-desktop \
             passwd dnf sudo udev \
@@ -149,7 +149,7 @@ jobs:
           echo "release_body_file=$RELEASE_BODY_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts (workflow)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: fedora-gaokun3-build
           path: |
@@ -157,7 +157,7 @@ jobs:
             ${{ steps.package.outputs.artifact_dir }}/${{ steps.package.outputs.package_glob }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: ${{ steps.package.outputs.tag_name }}
           name: Fedora ${{ env.FEDORA_RELEASE }} - gaokun3 - ${{ steps.package.outputs.kernel_release }}

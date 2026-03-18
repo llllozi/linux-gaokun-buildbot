@@ -92,7 +92,7 @@ echo $KREL
 mkdir -p $ROOTFS_DIR
 
 sudo dnf --installroot=$ROOTFS_DIR --releasever=44 --forcearch=aarch64 --use-host-config -y \
-    --exclude=gnome-boxes,gnome-connections,snapshot,gnome-weather,showtime,decibels,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
+    --exclude=gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,showtime,decibels,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
     install \
     @gnome-desktop \
     passwd dnf sudo udev \
