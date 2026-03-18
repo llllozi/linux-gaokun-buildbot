@@ -102,6 +102,7 @@ jobs:
 
           sudo dnf --installroot="$ROOTFS_DIR" --releasever="$FEDORA_RELEASE" --forcearch=aarch64 -y \
             --setopt=cachedir=$HOME/.cache/dnf \
+            --setopt=keepcache=True \
             --setopt=reposdir=/dev/null \
             --setopt=fastestmirror=False \
             --setopt=deltarpm=False \
@@ -140,10 +141,12 @@ jobs:
           TAG_NAME="$(cat "$WORKDIR/tag-name.txt")"
           KREL="$(cat "$WORKDIR/kernel-release-export.txt")"
           PACKAGE_GLOB="$(cat "$WORKDIR/package-glob.txt")"
+          RELEASE_BODY_FILE="$(cat "$WORKDIR/release-body-file.txt")"
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
           echo "kernel_release=$KREL" >> "$GITHUB_OUTPUT"
           echo "package_glob=$PACKAGE_GLOB" >> "$GITHUB_OUTPUT"
+          echo "release_body_file=$RELEASE_BODY_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts (workflow)
         uses: actions/upload-artifact@v4
@@ -151,8 +154,6 @@ jobs:
           name: fedora-gaokun3-build
           path: |
             ${{ steps.package.outputs.artifact_dir }}/gaokun3_defconfig
-            ${{ steps.package.outputs.artifact_dir }}/release-info.txt
-            ${{ steps.package.outputs.artifact_dir }}/SHA256SUMS.txt
             ${{ steps.package.outputs.artifact_dir }}/${{ steps.package.outputs.package_glob }}
 
       - name: Create GitHub Release
@@ -160,9 +161,7 @@ jobs:
         with:
           tag_name: ${{ steps.package.outputs.tag_name }}
           name: Fedora ${{ env.FEDORA_RELEASE }} - gaokun3 - ${{ steps.package.outputs.kernel_release }}
-          body_path: ${{ steps.package.outputs.artifact_dir }}/release-info.txt
+          body_path: ${{ steps.package.outputs.artifact_dir }}/${{ steps.package.outputs.release_body_file }}
           files: |
             ${{ steps.package.outputs.artifact_dir }}/gaokun3_defconfig
-            ${{ steps.package.outputs.artifact_dir }}/release-info.txt
-            ${{ steps.package.outputs.artifact_dir }}/SHA256SUMS.txt
             ${{ steps.package.outputs.artifact_dir }}/${{ steps.package.outputs.package_glob }}

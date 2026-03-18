@@ -11,6 +11,8 @@ set -euo pipefail
 KREL="$(cat "$WORKDIR/kernel-release.txt")"
 IMAGE_BASENAME="$(basename "$IMAGE_FILE")"
 ZST_FILE="$ARTIFACT_DIR/${IMAGE_BASENAME}.zst"
+RELEASE_BODY_FILE="$ARTIFACT_DIR/release-body.md"
+SHA256_FILE="$ARTIFACT_DIR/SHA256SUMS.txt"
 SPLIT_THRESHOLD_BYTES=$((2 * 1024 * 1024 * 1024))
 
 cp "$IMAGE_FILE" "$ARTIFACT_DIR/"
@@ -21,8 +23,8 @@ if [ "$(stat -c '%s' "$ZST_FILE")" -lt "$SPLIT_THRESHOLD_BYTES" ]; then
   sudo sha256sum \
     "$ARTIFACT_DIR/gaokun3_defconfig" \
     "$ZST_FILE" \
-    | sudo tee "$ARTIFACT_DIR/SHA256SUMS.txt" > /dev/null
-  cat > "$ARTIFACT_DIR/release-info.txt" <<EOF
+    | sudo tee "$SHA256_FILE" > /dev/null
+  cat > "$RELEASE_BODY_FILE" <<EOF
 Distribution: Fedora ${FEDORA_RELEASE} (Minimal GNOME)
 Kernel Tag: ${KERNEL_TAG}
 Kernel Release: ${KREL}
@@ -32,6 +34,9 @@ Bootloader: GRUB2 (BLS disabled, traditional grub.cfg)
 Image File: ${IMAGE_BASENAME}
 Compressed File: ${IMAGE_BASENAME}.zst
 Build Time (UTC): $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+SHA256:
+$(cat "$SHA256_FILE")
 EOF
 else
   split -b "$IMAGE_CHUNK_SIZE" -d -a 3 \
@@ -41,8 +46,8 @@ else
   sudo sha256sum \
     "$ARTIFACT_DIR/gaokun3_defconfig" \
     "$ZST_FILE.part-"* \
-    | sudo tee "$ARTIFACT_DIR/SHA256SUMS.txt" > /dev/null
-  cat > "$ARTIFACT_DIR/release-info.txt" <<EOF
+    | sudo tee "$SHA256_FILE" > /dev/null
+  cat > "$RELEASE_BODY_FILE" <<EOF
 Distribution: Fedora ${FEDORA_RELEASE} (Minimal GNOME)
 Kernel Tag: ${KERNEL_TAG}
 Kernel Release: ${KREL}
@@ -56,13 +61,17 @@ Build Time (UTC): $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 Reassemble + Decompress:
 cat ${IMAGE_BASENAME}.zst.part-* > ${IMAGE_BASENAME}.zst
 zstd -d ${IMAGE_BASENAME}.zst -o ${IMAGE_BASENAME}
+
+SHA256:
+$(cat "$SHA256_FILE")
 EOF
 fi
 
-sudo chown "$(id -u):$(id -g)" "$ARTIFACT_DIR/SHA256SUMS.txt"
+sudo chown "$(id -u):$(id -g)" "$SHA256_FILE" "$RELEASE_BODY_FILE"
 
 TAG_NAME="fedora${FEDORA_RELEASE}-${KREL}-$(date -u +%Y%m%d%H%M%S)"
 
 echo "$TAG_NAME" > "$WORKDIR/tag-name.txt"
 echo "$KREL" > "$WORKDIR/kernel-release-export.txt"
 echo "$PACKAGE_GLOB" > "$WORKDIR/package-glob.txt"
+echo "$(basename "$RELEASE_BODY_FILE")" > "$WORKDIR/release-body-file.txt"

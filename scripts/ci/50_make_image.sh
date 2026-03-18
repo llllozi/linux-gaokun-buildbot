@@ -98,8 +98,10 @@ GRUB_CMDLINE_LINUX="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passt
 GRUB_DEFAULT_DTB="qcom/sc8280xp-huawei-gaokun3.dtb"
 GRUBEOF
 
+echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
 grub2-install --target=arm64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --force
 grub2-mkconfig -o /boot/grub2/grub.cfg
+sed -i '/^GRUB_DISABLE_OS_PROBER=true$/d' /etc/default/grub
 
 ROOT_UUID="$(blkid -s UUID -o value /dev/disk/by-label/rootfs)"
 mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/fedora

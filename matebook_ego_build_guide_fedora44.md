@@ -1,39 +1,56 @@
-# Huawei MateBook E Go 2023 - Fedora 44 Beta 构建指南 (GRUB + GNOME)
+# Huawei MateBook E Go 2023 Fedora 44 手动构建指南
 
-> **目标机型**：Huawei MateBook E Go 2023（SC8280XP / gaokun3）  
-> **宿主机环境**：基于 RPM/DNF 的发行版（如 Fedora），需要有 `dnf`、`parted`。若宿主机是 **arm64**（例如 arm64 WSL2 Fedora），可直接原生构建；若宿主机是 x86_64，则需要 `qemu-user-static` 与 `cross-gcc-aarch64`（或其他 aarch64 交叉工具链）。若宿主机为 Ubuntu，可通过安装 `dnf` 然后使用 `--installroot` 实现跨发行版构建。  
-> **发行版**：**Fedora 44 Beta** (Rawhide 或当期发行版)  
+> **目标机型**：Huawei MateBook E Go 2023 (`SC8280XP` / `gaokun3`)  
+> **目标系统**：Fedora 44 GNOME，GRUB 启动，Btrfs 根文件系统  
+> **推荐宿主机**：Fedora 或其他基于 RPM/DNF 的发行版  
+> **仓库假设**：本文默认你当前仓库位于 `~/gaokun/linux-gaokun-build`
 
-**WSL2 需切换内核 https://github.com/Nevuly/WSL2-Linux-Kernel-Rolling/releases 以更好的支持 vfat, btrfs 等文件系统**
+**WSL2 建议切换到支持 `vfat`、`btrfs` 等文件系统更完整的内核，例如：<https://github.com/Nevuly/WSL2-Linux-Kernel-Rolling/releases>**
 
 ---
 
-## 第一步：目录结构准备
+## 准备说明
 
+本文使用项目内已有内容，不需要额外获取设备专属仓库：
 
-安装必要工具（对于 Fedora arm64 宿主机）：
+- `gaokun-patches/`
+- `tools/`
+- `firmware-huawei-gaokun3_minimal/`
+
+如果宿主机是 arm64，可直接原生构建。  
+如果宿主机是 x86_64，请自行准备可用的 aarch64 交叉工具链，并在编译内核时额外设置 `CROSS_COMPILE`。
+
+---
+
+## 第一步：准备工作目录
+
+安装基础依赖（Fedora arm64 宿主机示例）：
 
 ```bash
-sudo dnf install gcc make bison flex bc openssl-devel elfutils-libelf-devel ncurses-devel dwarves git parted dosfstools btrfs-progs curl python3
+sudo dnf install gcc make bison flex bc openssl-devel elfutils-libelf-devel \
+    ncurses-devel dwarves git parted dosfstools btrfs-progs curl python3 rsync
 ```
 
-建立工作目录：
+准备源码与工作目录：
 
 ```bash
 mkdir -p ~/gaokun/matebook-build-fedora
 
 cd ~/gaokun
-# 拉取指定的 Linux 主线源码 (指定 tag 为 v7.0-rc4)
+# 获取指定版本的 Linux 主线源码
 if [ ! -d "mainline-linux" ]; then
-    git clone --depth 1 --branch v7.0-rc4 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git mainline-linux
+    git clone --depth 1 --branch v7.0-rc4 \
+        https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git \
+        mainline-linux
 fi
 ```
 
 设置环境变量：
+
 ```bash
-export GAOKUN_DIR=~/gaokun
-export WORKDIR=$GAOKUN_DIR/matebook-build-fedora
-export KERN_SRC=$GAOKUN_DIR/mainline-linux
+export GAOKUN_DIR=~/gaokun/linux-gaokun-build
+export WORKDIR=~/gaokun/matebook-build-fedora
+export KERN_SRC=~/gaokun/mainline-linux
 export KERN_OUT=$GAOKUN_DIR/kernel-out
 export FW_REPO=$GAOKUN_DIR/firmware-huawei-gaokun3_minimal
 export ROOTFS_DIR=$WORKDIR/rootfs
@@ -42,18 +59,20 @@ export IMAGE_FILE=$WORKDIR/fedora-44-gaokun3.img
 
 ---
 
-## 第二步：内核与树内驱动编译
+## 第二步：编译内核
+
+应用项目内核补丁并构建：
 
 ```bash
 cd $KERN_SRC
 
-# 应用全套补丁 (涵盖屏幕驱动代码和硬件基础支持)、defconfig 和设备树注入
+# 应用项目内置补丁，包含 gaokun3 所需的 DTS、驱动和 defconfig 修改
 git am $GAOKUN_DIR/gaokun-patches/*.patch
 
-# 编译阶段
 mkdir -p $KERN_OUT
 
-# arm64 宿主机（含 arm64 WSL2）可直接原生构建，无需 CROSS_COMPILE
+# 先根据补丁后的 defconfig 生成配置，再补齐默认选项
+make O=$KERN_OUT ARCH=arm64 defconfig
 make O=$KERN_OUT ARCH=arm64 olddefconfig
 make O=$KERN_OUT ARCH=arm64 -j$(nproc)
 
@@ -63,11 +82,11 @@ echo $KREL
 
 ---
 
-## 第三步：构建基础文件系统 (Fedora GNOME Desktop)
+## 第三步：构建 RootFS
 
-通过 `dnf --installroot` 安装完整 Fedora GNOME 桌面。使用 `@gnome-desktop` 组拉入标准桌面环境（含 gdm、gnome-shell、nautilus、ptyxis、gnome-control-center、gnome-software、gnome-system-monitor、gnome-disk-utility、gnome-backgrounds、mesa-dri-drivers、NetworkManager 等），再补充引导工具、中文支持和常用命令行工具。
+使用 `dnf --installroot` 安装 Fedora 44 GNOME Desktop，并补充启动、网络、输入法和常用工具。
 
-> 注：若宿主机是 Ubuntu 等非 Fedora 系统，先 `sudo apt install dnf systemd-container`。跨发行版构建有时由于 key 缺失稍微复杂，建议宿主机也使用 Fedora 容器或本系虚拟机。
+> 若宿主机是 Ubuntu 等非 Fedora 系统，可先安装 `dnf`，然后继续使用 `--installroot` 方式构建。
 
 ```bash
 mkdir -p $ROOTFS_DIR
@@ -86,61 +105,55 @@ sudo dnf --installroot=$ROOTFS_DIR --releasever=44 --forcearch=aarch64 --use-hos
     f44-backgrounds-gnome mpv vim git openssh-server curl htop fastfetch screen nano firefox
 ```
 
-### 安装内核与模块
+安装内核、模块、固件和本地工具：
 
 ```bash
 cd $KERN_SRC
 
-# 验证内核版本
 KREL=$(cat $KERN_OUT/include/config/kernel.release)
 echo $KREL
 
-sudo make O=$KERN_OUT ARCH=arm64 \
-    INSTALL_MOD_PATH=$ROOTFS_DIR modules_install
-
+sudo make O=$KERN_OUT ARCH=arm64 INSTALL_MOD_PATH=$ROOTFS_DIR modules_install
 sudo rm -f $ROOTFS_DIR/lib/modules/$KREL/{build,source}
 
-# 安装 kernel
+# 安装 kernel image
+sudo mkdir -p $ROOTFS_DIR/boot
 sudo cp $KERN_OUT/arch/arm64/boot/Image \
     $ROOTFS_DIR/boot/vmlinuz-$KREL
 
-# 创建 dtb 目录结构（GRUB 需要）
+# 创建 dtb 目录结构，供 GRUB 使用
 sudo mkdir -p $ROOTFS_DIR/boot/dtb-$KREL/qcom
-
-# 安装 dtb
 sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb \
     $ROOTFS_DIR/boot/dtb-$KREL/qcom/
-```
 
-安装设备专属固件：
-```bash
-# 使用项目内置的最小固件集覆盖到 RootFS
-sudo cp -r $FW_REPO/* $ROOTFS_DIR/lib/firmware/
-```
+# 直接复制项目内置的最小固件集
+sudo mkdir -p $ROOTFS_DIR/lib/firmware
+sudo cp -r $FW_REPO/. $ROOTFS_DIR/lib/firmware/
 
-安装特定工具：
-```bash
+# 安装项目内的设备专属脚本与服务
 sudo mkdir -p $ROOTFS_DIR/usr/local/bin
 sudo mkdir -p $ROOTFS_DIR/etc/systemd/system
 sudo mkdir -p $ROOTFS_DIR/usr/share/alsa/ucm2/Qualcomm/sc8280xp
 
-sudo cp $GAOKUN_DIR/tools/touchpad/huawei-tp-activate.py $ROOTFS_DIR/usr/local/bin/
-sudo cp $GAOKUN_DIR/tools/touchpad/huawei-touchpad.service $ROOTFS_DIR/etc/systemd/system/
+sudo cp $GAOKUN_DIR/tools/touchpad/huawei-tp-activate.py \
+    $ROOTFS_DIR/usr/local/bin/
+sudo cp $GAOKUN_DIR/tools/touchpad/huawei-touchpad.service \
+    $ROOTFS_DIR/etc/systemd/system/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/huawei-tp-activate.py
 
-sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.py $ROOTFS_DIR/usr/local/bin/
+sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.py \
+    $ROOTFS_DIR/usr/local/bin/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/patch-nvm-bdaddr.py
 
-# Audio UCM: 华为机型复用 Lenovo X13s 的 UCM，并靠这份匹配文件选中正确配置
 sudo cp $GAOKUN_DIR/tools/audio/sc8280xp.conf \
     $ROOTFS_DIR/usr/share/alsa/ucm2/Qualcomm/sc8280xp/
 ```
 
 ---
 
-## 第四步：打包到可启动磁盘镜像并配置 GRUB
+## 第四步：制作可启动镜像
 
-### 1. 镜像与分区挂载（Fedora 风格 Btrfs 子卷）
+### 1. 创建镜像和分区
 
 ```bash
 cd $WORKDIR
@@ -157,26 +170,26 @@ sudo mkfs.btrfs -f -L rootfs ${LOOP}p2
 
 EFI_UUID=$(sudo blkid -s UUID -o value ${LOOP}p1)
 ROOT_UUID=$(sudo blkid -s UUID -o value ${LOOP}p2)
+```
 
+### 2. 创建 Btrfs 子卷并同步 RootFS
+
+```bash
 sudo mkdir -p /mnt/ego-fedora
 
-# 创建 Fedora 常见子卷布局：@（根）与 @home（家目录）
+# 创建 Fedora 常见子卷布局：@ 用于根分区，@home 用于家目录
 sudo mount ${LOOP}p2 /mnt/ego-fedora
 sudo btrfs subvolume create /mnt/ego-fedora/@
 sudo btrfs subvolume create /mnt/ego-fedora/@home
 sudo umount /mnt/ego-fedora
 
-# 挂载子卷
+# 挂载子卷并准备 EFI 分区
 sudo mount -o subvol=@ ${LOOP}p2 /mnt/ego-fedora
 sudo mkdir -p /mnt/ego-fedora/home
 sudo mount -o subvol=@home ${LOOP}p2 /mnt/ego-fedora/home
 sudo mkdir -p /mnt/ego-fedora/boot/efi
 sudo mount ${LOOP}p1 /mnt/ego-fedora/boot/efi
-```
 
-### 2. 同步数据及 fstab
-
-```bash
 sudo rsync -aHAX --info=progress2 $ROOTFS_DIR/ /mnt/ego-fedora/
 
 sudo tee /mnt/ego-fedora/etc/fstab > /dev/null <<EOF
@@ -186,12 +199,10 @@ UUID=${EFI_UUID}   /boot/efi vfat   defaults,nofail,x-systemd.device-timeout=10s
 EOF
 ```
 
-### 3. chroot 初始化，生成 Dracut 与 GRUB (Dracut 替代 Initramfs)
-
-设置并切入虚拟环境（通过 `systemd-nspawn` 或者 `mount --bind` + `chroot`。这里使用通用 `chroot`，前提是确保 qemu-user-static 与环境就绪）：
+### 3. chroot 初始化并生成 GRUB
 
 ```bash
-# 建议用 trap 统一清理，避免中途失败后残留挂载
+# 建议统一清理挂载，避免中途中断后留下残留状态
 cleanup_mounts() {
     sudo umount /mnt/ego-fedora/dev/pts 2>/dev/null || true
     sudo umount /mnt/ego-fedora/boot/efi 2>/dev/null || true
@@ -213,12 +224,12 @@ sudo mount -t tmpfs tmpfs /mnt/ego-fedora/run
 sudo chroot /mnt/ego-fedora /bin/bash
 ```
 
-**(在 chroot 环境中执行):**
+在 chroot 中执行：
 
 ```bash
 KREL="$(ls /lib/modules/ | head -n1)"
 
-# 简单用户信息与主机名
+# 创建默认用户与主机名
 echo "fedora" > /etc/hostname
 useradd -m -s /bin/bash -G wheel user
 echo "user:user" | chpasswd
@@ -226,10 +237,10 @@ mkdir -p /etc/sudoers.d
 echo "%wheel ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/wheel-nopasswd
 chmod 440 /etc/sudoers.d/wheel-nopasswd
 
-# 开启服务
+# 开启图形、网络、SSH 和触控板服务
 systemctl enable gdm NetworkManager sshd huawei-touchpad.service
 
-# 内核模块自动加载 (Dracut 与运行时皆需要)
+# 运行时与 dracut 都需要的关键模块
 mkdir -p /etc/modules-load.d
 echo -e "pci-pwrctrl-pwrseq\nath11k_pci" > /etc/modules-load.d/wifi.conf
 echo "btqca" > /etc/modules-load.d/bluetooth.conf
@@ -240,7 +251,7 @@ echo -e "huawei-gaokun-ec\nhuawei-gaokun-battery\nucsi_huawei_gaokun" > /etc/mod
 mkdir -p /etc/modprobe.d
 echo "softdep pinctrl_sc8280xp_lpass_lpi pre: lpasscc_sc8280xp" > /etc/modprobe.d/audio-deps.conf
 
-# 生成 initramfs: Fedora 默认使用 dracut
+# Fedora 默认使用 dracut 生成 initramfs
 cat > /etc/dracut.conf.d/matebook.conf <<MODEOF
 hostonly="no"
 add_drivers+=" btrfs nvme phy-qcom-qmp-pcie phy-qcom-qmp-combo phy-qcom-qmp-usb phy-qcom-snps-femto-v2 usb-storage uas typec pci-pwrctrl-pwrseq ath11k ath11k_pci panel-himax-hx83121a msm i2c-hid-of lpasscc_sc8280xp snd-soc-sc8280xp pinctrl_sc8280xp_lpass_lpi "
@@ -248,7 +259,6 @@ MODEOF
 
 dracut --force --kver $KREL
 
-# --- 设置 GRUB：关闭 BLS，使用传统 grub.cfg 菜单 ---
 ROOT_UUID="$(blkid -s UUID -o value /dev/disk/by-label/rootfs)"
 
 cat > /etc/default/grub <<GRUBEOF
@@ -260,13 +270,13 @@ GRUB_CMDLINE_LINUX="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passt
 GRUB_DEFAULT_DTB="qcom/sc8280xp-huawei-gaokun3.dtb"
 GRUBEOF
 
-# 生成 GRUB 主配置（传统菜单模式）
-grub2-install --target=arm64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable
+# 仅在生成镜像时临时禁用 os-prober，避免把宿主机系统探测进来
+echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
+grub2-install --target=arm64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --force
 grub2-mkconfig -o /boot/grub2/grub.cfg
+sed -i '/^GRUB_DISABLE_OS_PROBER=true$/d' /etc/default/grub
 
-# 关键修复：给 EFI 分区写入桥接 grub.cfg，强制按 rootfs UUID 找到真正菜单。
-# 对于 Btrfs + @ 子卷布局，真实路径通常在 /@/boot/grub2/grub.cfg。
-# 否则在部分设备上会出现“GRUB 无菜单，需要手动 configfile (hd0,gpt2)/@/boot/grub2/grub.cfg”。
+# 给 EFI 分区写一个桥接 grub.cfg，按 rootfs UUID 找到真正菜单
 mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/fedora
 cat > /boot/efi/EFI/BOOT/grub.cfg <<EOF
 search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
@@ -284,38 +294,41 @@ fi
 EOF
 cp /boot/efi/EFI/BOOT/grub.cfg /boot/efi/EFI/fedora/grub.cfg
 
-# 可选：验证 grub.cfg 已写入 devicetree
+# 可选：确认最终 grub.cfg 中已经带上 devicetree
 grep -n "devicetree" /boot/grub2/grub.cfg
-echo "EFI bridge grub.cfg:" && cat /boot/efi/EFI/BOOT/grub.cfg
-
-# 若仍卡启动日志，可临时追加调试参数后重建 grub.cfg：
-# sed -i 's/loglevel=4/loglevel=7 ignore_loglevel rd.debug rd.shell=0/' /etc/default/grub
-# grub2-mkconfig -o /boot/grub2/grub.cfg
-
 exit
 ```
 
-**(回到宿主机)**
+回到宿主机后清理挂载：
 
 ```bash
 trap - EXIT
 cleanup_mounts
-```
-
-### 4. 卸载镜像
-```bash
 sudo losetup -d $LOOP
 ```
 
 ---
 
-## 第五步：刷入设备
+## 第五步：刷写镜像
 
-镜像准备就绪于 `$WORKDIR/fedora-44-gaokun3.img`。
+镜像生成后位于：
+
+```bash
+$WORKDIR/fedora-44-gaokun3.img
+```
+
+刷入设备：
 
 ```bash
 sudo dd if=$IMAGE_FILE of=/dev/sdX bs=4M status=progress conv=fsync
 ```
-或使用 `balenaEtcher`, `Rufus`, `gnome-disks` 等图形工具刷入。
 
-**可选：启动后通过扩容工具（如 `gnome-disks`）将剩余空间扩展到根分区，或在终端使用 `btrfs` 命令手动扩容：**
+也可以使用 `balenaEtcher`、`Rufus`、`gnome-disks` 等图形工具。
+
+---
+
+## 额外说明
+
+- 首次启动后如需扩容，可使用 `gnome-disks`，或执行 `btrfs filesystem resize max /`
+- 文中所有 `tools/` 与 firmware 都来自当前仓库，不依赖外部设备专属仓库
+- 如果你需要自动化构建，可直接参考 GitHub Actions workflow：`.github/workflows/fedora-gaokun3-release.yml`
