@@ -301,7 +301,7 @@ cat > /home/user/.config/monitors.xml <<EOF
                 <mode>
                     <width>1600</width>
                     <height>2560</height>
-                    <rate>59.694</rate>
+                    <rate>60.000</rate>
                 </mode>
             </monitor>
         </logicalmonitor>
