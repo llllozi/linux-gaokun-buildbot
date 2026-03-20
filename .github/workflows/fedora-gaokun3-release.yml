@@ -11,6 +11,18 @@ on:
         description: Linux kernel tag
         required: true
         default: "v7.0-rc4"
+      desktop_environment:
+        description: Desktop environment package group (single package or group)
+        required: true
+        default: "@gnome-desktop"
+      excluded_packages:
+        description: Packages to exclude from rootfs install (comma-separated)
+        required: true
+        default: "gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar"
+      extra_packages:
+        description: Extra packages to install (space-separated)
+        required: true
+        default: "fcitx5-chinese-addons gnome-tweaks telnet mpv v4l-utils vim git htop fastfetch screen firefox"
 
 permissions:
   contents: write
@@ -22,6 +34,9 @@ jobs:
       TZ: UTC
       FEDORA_RELEASE: ${{ github.event.inputs.fedora_release }}
       KERNEL_TAG: ${{ github.event.inputs.kernel_tag }}
+      DESKTOP_ENVIRONMENT: ${{ github.event.inputs.desktop_environment }}
+      EXCLUDED_PACKAGES: ${{ github.event.inputs.excluded_packages }}
+      EXTRA_PACKAGES: ${{ github.event.inputs.extra_packages }}
       IMAGE_SIZE: 12G
       IMAGE_CHUNK_SIZE: 1900M
       GAOKUN_DIR: ${{ github.workspace }}
@@ -88,14 +103,12 @@ jobs:
             "fedora:${FEDORA_RELEASE}" \
             bash -euxo pipefail -c '
               dnf -y --installroot="'"$ROOTFS_DIR"'" --releasever="'"$FEDORA_RELEASE"'" --forcearch=aarch64 --use-host-config \
-                --exclude=gnome-boxes,gnome-connections,gnome-browser-connector,snapshot,gnome-weather,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,yelp,gnome-user-docs,gnome-calculator,gnome-calendar \
+                --exclude="'"$EXCLUDED_PACKAGES"'" \
                 install \
-                @core @standard @gnome-desktop \
+                @core @standard "'"$DESKTOP_ENVIRONMENT"'" \
                 grub2-efi-aa64-modules efibootmgr shim-aa64 \
-                gnome-tweaks \
                 langpacks-en langpacks-zh_CN \
-                fcitx5-chinese-addons \
-                telnet mpv v4l-utils vim git htop fastfetch screen firefox
+                "'"$EXTRA_PACKAGES"'"
             '
 
       - name: Populate rootfs (kernel + firmware + tools)
