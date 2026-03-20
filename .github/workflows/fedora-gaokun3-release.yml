@@ -108,7 +108,7 @@ jobs:
                 @core @standard "'"$DESKTOP_ENVIRONMENT"'" \
                 grub2-efi-aa64-modules efibootmgr shim-aa64 \
                 langpacks-en langpacks-zh_CN \
-                "'"$EXTRA_PACKAGES"'"
+                '"$EXTRA_PACKAGES"'
             '
 
       - name: Populate rootfs (kernel + firmware + tools)
