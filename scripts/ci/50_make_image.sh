@@ -69,6 +69,10 @@ echo "user:user" | chpasswd
 mkdir -p /etc/sudoers.d
 echo "%wheel ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/wheel-nopasswd
 chmod 440 /etc/sudoers.d/wheel-nopasswd
+cat > /etc/locale.conf <<'EOF'
+LANG=en_US.UTF-8
+LC_MESSAGES=en_US.UTF-8
+EOF
 
 mkdir -p /home/user/.config
 cat > /home/user/.config/monitors.xml <<'EOF'

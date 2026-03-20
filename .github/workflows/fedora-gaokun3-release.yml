@@ -92,7 +92,9 @@ jobs:
                 install \
                 @core @standard @gnome-desktop \
                 grub2-efi-aa64-modules efibootmgr shim-aa64 \
-                gnome-tweaks langpacks-zh_CN fcitx5-chinese-addons \
+                gnome-tweaks \
+                langpacks-en langpacks-zh_CN \
+                fcitx5-chinese-addons \
                 telnet mpv v4l-utils vim git htop fastfetch screen firefox
             '
 

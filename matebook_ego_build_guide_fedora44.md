@@ -96,7 +96,9 @@ sudo dnf --installroot=$ROOTFS_DIR --releasever=44 --forcearch=aarch64 --use-hos
     install \
     @core @standard @gnome-desktop \
     grub2-efi-aa64-modules efibootmgr shim-aa64 \
-    gnome-tweaks langpacks-zh_CN fcitx5-chinese-addons \
+    gnome-tweaks \
+    langpacks-en langpacks-zh_CN \
+    fcitx5-chinese-addons \
     telnet mpv v4l-utils vim git htop fastfetch screen firefox
 ```
 
@@ -231,6 +233,10 @@ echo "user:user" | chpasswd
 mkdir -p /etc/sudoers.d
 echo "%wheel ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/wheel-nopasswd
 chmod 440 /etc/sudoers.d/wheel-nopasswd
+cat > /etc/locale.conf <<EOF
+LANG=en_US.UTF-8
+LC_MESSAGES=en_US.UTF-8
+EOF
 
 # 预置屏幕方向与缩放，并同步给 GDM 登录界面
 mkdir -p /home/user/.config
