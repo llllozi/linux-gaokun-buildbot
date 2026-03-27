@@ -157,6 +157,14 @@ jobs:
                 langpacks-en langpacks-zh_CN \
                 alsa-utils pipewire-utils \
                 '"$EXTRA_PACKAGES"'
+
+              dnf -y --installroot="'"$ROOTFS_DIR"'" --releasever="'"$FEDORA_RELEASE"'" --forcearch=aarch64 --use-host-config \
+                install \
+                https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-'"$FEDORA_RELEASE"'.noarch.rpm
+
+              dnf -y --installroot="'"$ROOTFS_DIR"'" --releasever="'"$FEDORA_RELEASE"'" --forcearch=aarch64 --use-host-config \
+                install \
+                libavcodec-freeworld
             '
 
       - name: Install gaokun package RPMs into rootfs
