@@ -1,8 +1,7 @@
-From 7ff1f1471ccf9fd545f4acf4dfa430c689f5eeef Mon Sep 17 00:00:00 2001
+From daeec6a4f4c2f5f7b1235455b1b3cb8c5fbe87e6 Mon Sep 17 00:00:00 2001
 From: Lewis <lewis@matebook-e-go-linux>
 Date: Mon, 9 Feb 2026 00:00:00 +0800
-Subject: [PATCH 08/10] platform/arm64: huawei-gaokun-ec: fix suspend/resume
- ordering
+Subject: [PATCH] platform/arm64: huawei-gaokun-ec: fix suspend/resume ordering
 
 Use SYSTEM_SLEEP_PM_OPS instead of NOIRQ_SYSTEM_SLEEP_PM_OPS for the
 gaokun EC driver's power management callbacks.
@@ -33,5 +32,5 @@ index a83ddc20b..663e8008d 100644
  
  static struct i2c_driver gaokun_ec_driver = {
 -- 
-2.53.0
+2.43.0
 

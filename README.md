@@ -6,14 +6,16 @@ Build scripts, patches, kernel config, DTS files, tools, and firmware for Linux 
 
 - `patches/`: kernel patches and device support changes
 - `defconfig/`: local kernel configuration used by CI/manual builds
-- `dts/`: local device tree sources copied into the kernel tree during build
+- `drivers/`: local mirrors of the patched driver sources kept in the patch series
+- `dts/`: local mirrors of the patched device tree sources kept in the patch series
 - `firmware/`: minimal firmware bundle used by the image build
+- `packaging/`: RPM spec templates for kernel and firmware packages
 - `tools/`: device-specific helper scripts and service files
 - `scripts/ci/`: workflow build, image creation, and packaging scripts
 
-The touchscreen path is now handled as an in-kernel SPI driver carried in
-`patches/`; the build no longer relies on a separate DKMS package or
-userspace I2C recovery helpers.
+The image pipeline now builds and installs a dedicated RPM set:
+`kernel-gaokun`, `kernel-modules-gaokun`, `kernel-devel-gaokun`, and
+`linux-firmware-gaokun`.
 
 ## Getting started
 

@@ -63,7 +63,7 @@ export IMAGE_FILE=$WORKDIR/fedora-44-gaokun3.img
 
 ## 第二步：编译内核
 
-应用项目内核补丁，并导入仓库内的 DTS 与 defconfig 后构建。
+应用项目内核补丁后直接构建。
 当前触摸屏方案已经统一为内核内的 Himax HX83121A SPI 驱动，不再额外安装 DKMS，也不再依赖旧的 I2C 恢复脚本：
 
 ```bash
@@ -72,28 +72,9 @@ cd $KERN_SRC
 # 应用项目内置补丁
 git am $GAOKUN_DIR/patches/*.patch
 
-# 覆盖内核源码中的 defconfig，并拷入项目维护的 DTS 文件
-install -Dm644 \
-    $GAOKUN_DIR/defconfig/gaokun_defconfig \
-    $KERN_SRC/arch/arm64/configs/defconfig
-install -Dm644 \
-    $GAOKUN_DIR/dts/sc8280xp-huawei-gaokun3.dts \
-    $KERN_SRC/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts
-install -Dm644 \
-    $GAOKUN_DIR/dts/sc8280xp-huawei-gaokun3-camera.dtsi \
-    $KERN_SRC/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-camera.dtsi
-
-# 临时提交，避免内核版本字符串附带 -dirty
-git add \
-    arch/arm64/configs/defconfig \
-    arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts \
-    arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-camera.dtsi
-git diff --cached --quiet || \
-    git commit -m "arm64: gaokun3: import local dts and defconfig"
-
 mkdir -p $KERN_OUT
 
-# 先根据覆盖后的 defconfig 生成配置，再补齐新内核默认选项
+# 根据 patch 后的 defconfig 生成配置，再补齐新内核默认选项
 make O=$KERN_OUT ARCH=arm64 defconfig
 make O=$KERN_OUT ARCH=arm64 olddefconfig
 make O=$KERN_OUT ARCH=arm64 -j$(nproc)

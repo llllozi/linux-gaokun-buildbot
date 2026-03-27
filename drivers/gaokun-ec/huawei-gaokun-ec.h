@@ -76,5 +76,4 @@ int gaokun_ec_ucsi_write(struct gaokun_ec *ec,
 int gaokun_ec_ucsi_get_reg(struct gaokun_ec *ec, struct gaokun_ucsi_reg *ureg);
 int gaokun_ec_ucsi_pan_ack(struct gaokun_ec *ec, int port_id);
 
-
 #endif /* __HUAWEI_GAOKUN_EC_H__ */

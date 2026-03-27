@@ -23,12 +23,27 @@ on:
         description: Extra packages to install (space-separated)
         required: true
         default: "fcitx5-chinese-addons gnome-tweaks telnet mpv v4l-utils vim git htop fastfetch screen firefox"
+      rebuild_package_rpms:
+        description: Rebuild gaokun package RPMs before image build
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 jobs:
+  build-package-rpms:
+    if: ${{ github.event.inputs.rebuild_package_rpms == 'true' }}
+    uses: ./.github/workflows/gaokun3-package-rpms.yml
+    with:
+      kernel_tag: ${{ github.event.inputs.kernel_tag }}
+      package_release_tag: gaokun3-packages
+    secrets: inherit
+
   build-and-release:
+    needs: build-package-rpms
+    if: ${{ !cancelled() && (needs.build-package-rpms.result == 'success' || needs.build-package-rpms.result == 'skipped') }}
     runs-on: ubuntu-24.04-arm
     env:
       TZ: UTC
@@ -41,57 +56,34 @@ jobs:
       IMAGE_CHUNK_SIZE: 1900M
       GAOKUN_DIR: ${{ github.workspace }}
       WORKDIR: ${{ github.workspace }}/build-fedora
-      KERN_SRC: ${{ github.workspace }}/build-fedora/mainline-linux
-      KERN_OUT: ${{ github.workspace }}/build-fedora/kernel-out
       ROOTFS_DIR: ${{ github.workspace }}/build-fedora/rootfs
       ARTIFACT_DIR: ${{ github.workspace }}/build-fedora/artifacts
-      FW_REPO: ${{ github.workspace }}/firmware
+      PACKAGE_RPMS_DIR: ${{ github.workspace }}/build-fedora/package-rpms
+      PACKAGE_RELEASE_TAG: gaokun3-packages
       IMAGE_FILE: ${{ github.workspace }}/build-fedora/fedora-${{ github.event.inputs.fedora_release }}-gaokun3.img
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Checkout Linux source
-        uses: actions/checkout@v6
-        with:
-          repository: torvalds/linux
-          ref: ${{ env.KERNEL_TAG }}
-          fetch-depth: 1
-          path: build-fedora/mainline-linux
-
       - name: Install host dependencies
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y \
-            git make bc bison flex cpio rsync kmod fakeroot \
-            libssl-dev libelf-dev dwarves ccache \
-            curl jq \
+            rsync kmod curl jq \
             parted dosfstools e2fsprogs btrfs-progs zstd xz-utils python3
-
-      - name: Restore ccache
-        uses: actions/cache@v5
-        with:
-          path: ~/.ccache
-          key: gaokun3-ccache-${{ env.KERNEL_TAG }}-${{ hashFiles('patches/*.patch', 'defconfig/**', 'dts/**', 'scripts/ci/20_build_kernel.sh') }}
-          restore-keys: |
-            gaokun3-ccache-${{ env.KERNEL_TAG }}-
-            gaokun3-ccache-
 
       - name: Prepare build workspace
         run: |
           set -euxo pipefail
-          test -d "$FW_REPO"
-          mkdir -p "$WORKDIR" "$KERN_OUT" "$ROOTFS_DIR" "$ARTIFACT_DIR"
+          mkdir -p "$WORKDIR" "$ROOTFS_DIR" "$ARTIFACT_DIR"
 
-      - name: Apply patches and build kernel
-        id: kernel
+      - name: Download gaokun package RPMs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          scripts/ci/20_build_kernel.sh
-          KREL="$(cat "$WORKDIR/kernel-release.txt")"
-          echo "KREL=$KREL" >> "$GITHUB_ENV"
-          echo "kernel_release=$KREL" >> "$GITHUB_OUTPUT"
+          scripts/ci/30_fetch_package_rpms.sh
 
       - name: Bootstrap Fedora rootfs
         run: |
@@ -117,7 +109,11 @@ jobs:
                 '"$EXTRA_PACKAGES"'
             '
 
-      - name: Populate rootfs (kernel + firmware + tools)
+      - name: Install gaokun package RPMs into rootfs
+        run: |
+          scripts/ci/45_install_package_rpms.sh
+
+      - name: Populate rootfs (tools and services)
         run: |
           scripts/ci/40_populate_rootfs.sh
 

@@ -13,7 +13,7 @@
 #include <linux/module.h>
 #include <linux/notifier.h>
 #include <linux/of.h>
-#include "huawei-gaokun-ec.h"
+#include <linux/platform_data/huawei-gaokun-ec.h>
 #include <linux/string.h>
 #include <linux/usb/pd_vdo.h>
 #include <linux/usb/typec_altmode.h>

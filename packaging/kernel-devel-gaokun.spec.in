@@ -1,0 +1,34 @@
+%global debug_package %{nil}
+%global _debugsource_packages 0
+%global __brp_mangle_shebangs %{nil}
+
+Name:           kernel-devel-gaokun
+Version:        @KREL_VERSION@
+Release:        1%{?dist}
+Summary:        Development files for the gaokun3 kernel
+License:        GPL-2.0-only
+BuildArch:      aarch64
+Source0:        kernel-devel-gaokun.tar.gz
+Requires:       kernel-modules-gaokun = %{version}-%{release}
+
+%description
+Prepared build tree for compiling external modules against the gaokun3 kernel @KREL@.
+
+%prep
+%setup -q -c -T
+tar -xzf %{SOURCE0}
+
+%build
+
+%install
+mkdir -p %{buildroot}
+cp -a usr %{buildroot}/
+
+%files
+/usr/src/kernels/@KREL@
+/usr/lib/modules/@KREL@/build
+/usr/lib/modules/@KREL@/source
+
+%changelog
+* Fri Mar 27 2026 cool <bilibili@att.net> - @KREL_VERSION@-1
+- Build gaokun kernel devel RPM

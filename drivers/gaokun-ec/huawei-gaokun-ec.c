@@ -16,7 +16,7 @@
 #include <linux/notifier.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
-#include "huawei-gaokun-ec.h"
+#include <linux/platform_data/huawei-gaokun-ec.h>
 
 #define EC_EVENT		0x06
 
@@ -651,7 +651,7 @@ static int gaokun_ec_resume(struct device *dev)
 			break;
 
 		msleep(100); /* EC need time to resume */
-	};
+	}
 
 	ec->suspended = false;
 
@@ -662,6 +662,7 @@ static void gaokun_aux_release(struct device *dev)
 {
 	struct auxiliary_device *adev = to_auxiliary_dev(dev);
 
+	of_node_put(dev->of_node);
 	kfree(adev);
 }
 
@@ -679,7 +680,7 @@ static int gaokun_aux_init(struct device *parent, const char *name,
 	struct auxiliary_device *adev;
 	int ret;
 
-	adev = kzalloc(sizeof(*adev), GFP_KERNEL);
+	adev = kzalloc_obj(*adev);
 	if (!adev)
 		return -ENOMEM;
 
@@ -693,6 +694,7 @@ static int gaokun_aux_init(struct device *parent, const char *name,
 
 	ret = auxiliary_device_init(adev);
 	if (ret) {
+		of_node_put(adev->dev.of_node);
 		kfree(adev);
 		return ret;
 	}
@@ -799,13 +801,13 @@ static const struct i2c_device_id gaokun_ec_id[] = {
 MODULE_DEVICE_TABLE(i2c, gaokun_ec_id);
 
 static const struct of_device_id gaokun_ec_of_match[] = {
-	{ .compatible = "huawei,gaokun-ec", },
+	{ .compatible = "huawei,gaokun3-ec", },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, gaokun_ec_of_match);
 
 static const struct dev_pm_ops gaokun_ec_pm_ops = {
-	NOIRQ_SYSTEM_SLEEP_PM_OPS(gaokun_ec_suspend, gaokun_ec_resume)
+	SYSTEM_SLEEP_PM_OPS(gaokun_ec_suspend, gaokun_ec_resume)
 };
 
 static struct i2c_driver gaokun_ec_driver = {

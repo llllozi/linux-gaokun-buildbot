@@ -139,10 +139,19 @@ echo "softdep pinctrl_sc8280xp_lpass_lpi pre: lpasscc_sc8280xp" > /etc/modprobe.
 
 cat > /etc/dracut.conf.d/matebook.conf <<MODEOF
 hostonly="no"
-add_drivers+=" btrfs nvme phy-qcom-qmp-pcie phy-qcom-qmp-combo phy-qcom-qmp-usb phy-qcom-snps-femto-v2 usb-storage uas typec pci-pwrctrl-pwrseq ath11k ath11k_pci panel-himax-hx83121a himax_hx83121a_spi msm i2c-hid-of lpasscc_sc8280xp snd-soc-sc8280xp pinctrl_sc8280xp_lpass_lpi "
+add_drivers+=" btrfs nvme phy-qcom-qmp-pcie phy-qcom-qmp-combo phy-qcom-qmp-usb phy-qcom-snps-femto-v2 usb-storage uas typec pci-pwrctrl-pwrseq ath11k ath11k_pci i2c-hid-of lpasscc_sc8280xp snd-soc-sc8280xp pinctrl_sc8280xp_lpass_lpi "
+force_drivers+=" panel-himax-hx83121a himax_hx83121a_spi msm "
 MODEOF
 
 dracut --force --kver "$KREL"
+
+initrd_files="$(lsinitrd "/boot/initramfs-$KREL.img")"
+for module in panel-himax-hx83121a himax_hx83121a_spi msm; do
+  if ! grep -Eq "/${module}\.ko(\\.(xz|zst|gz))?$" <<<"$initrd_files"; then
+    echo "ERROR: required module ${module} missing from initramfs-$KREL.img" >&2
+    exit 1
+  fi
+done
 
 cat > /etc/default/grub <<GRUBEOF
 GRUB_DEFAULT=saved

@@ -1,0 +1,37 @@
+%global debug_package %{nil}
+%global _debugsource_packages 0
+
+Name:           kernel-modules-gaokun
+Version:        @KREL_VERSION@
+Release:        1%{?dist}
+Summary:        Kernel modules for the gaokun3 kernel
+License:        GPL-2.0-only
+BuildArch:      aarch64
+Source0:        kernel-modules-gaokun.tar.gz
+Requires:       kernel-gaokun = %{version}-%{release}
+
+%description
+Kernel modules for the gaokun3 kernel @KREL@.
+
+%prep
+%setup -q -c -T
+tar -xzf %{SOURCE0}
+
+%build
+
+%install
+mkdir -p %{buildroot}
+cp -a usr %{buildroot}/
+
+%post
+/usr/sbin/depmod -a @KREL@ >/dev/null 2>&1 || :
+
+%postun
+/usr/sbin/depmod -a @KREL@ >/dev/null 2>&1 || :
+
+%files
+/usr/lib/modules/@KREL@
+
+%changelog
+* Fri Mar 27 2026 cool <bilibili@att.net> - @KREL_VERSION@-1
+- Build gaokun kernel modules RPM

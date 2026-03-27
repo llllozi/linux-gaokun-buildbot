@@ -2,11 +2,6 @@
 /*
  * huawei-gaokun-battery - A power supply driver for HUAWEI Matebook E Go
  *
- * reference: drivers/power/supply/lenovo_yoga_c630_battery.c
- *            drivers/platform/arm64/acer-aspire1-ec.c
- *            drivers/acpi/battery.c
- *            drivers/acpi/ac.c
- *
  * Copyright (C) 2024 Pengyu Luo <mitltlatltl@gmail.com>
  */
 
@@ -16,7 +11,7 @@
 #include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/notifier.h>
-#include "huawei-gaokun-ec.h"
+#include <linux/platform_data/huawei-gaokun-ec.h>
 #include <linux/power_supply.h>
 #include <linux/sprintf.h>
 
@@ -379,6 +374,10 @@ static int gaokun_psy_set_bat_property(struct power_supply *psy,
 		return ret;
 
 	switch (psp) {
+	/*
+	 * Resetting another thershold makes single thersold setting more likely
+	 * to succeed. But setting start = end makes thing strange(failure).
+	 */
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD:
 		buf[SMART_CHARGE_START] = val->intval;
 		if (buf[SMART_CHARGE_START] > buf[SMART_CHARGE_END])
@@ -390,6 +389,7 @@ static int gaokun_psy_set_bat_property(struct power_supply *psy,
 		if (buf[SMART_CHARGE_END] < buf[SMART_CHARGE_START])
 			buf[SMART_CHARGE_START] = buf[SMART_CHARGE_END] - 1;
 		return gaokun_ec_psy_set_smart_charge(ecbat->ec, buf);
+
 	default:
 		return -EINVAL;
 	}
@@ -523,7 +523,7 @@ static ssize_t smart_charge_delay_store(struct device *dev,
 	u8 delay;
 	int ret;
 
-	if (sscanf(buf, "%hhd", &delay) != 1)
+	if (kstrtou8(buf, 10, &delay))
 		return -EINVAL;
 
 	ret = gaokun_ec_psy_get_smart_charge(ecbat->ec, bf);
@@ -607,7 +607,7 @@ static int gaokun_psy_probe(struct auxiliary_device *adev,
 
 	psy_cfg.supplied_to = (char **)&gaokun_psy_bat_desc.name;
 	psy_cfg.num_supplicants = 1;
-//	psy_cfg.no_wakeup_source = true;
+	psy_cfg.no_wakeup_source = true;
 	psy_cfg.attr_grp = gaokun_psy_features_groups;
 	ecbat->bat_psy = devm_power_supply_register(dev, &gaokun_psy_bat_desc,
 						    &psy_cfg);

@@ -2,33 +2,7 @@
 set -euo pipefail
 
 : "${GAOKUN_DIR:?missing GAOKUN_DIR}"
-: "${WORKDIR:?missing WORKDIR}"
-: "${KERN_SRC:?missing KERN_SRC}"
-: "${KERN_OUT:?missing KERN_OUT}"
 : "${ROOTFS_DIR:?missing ROOTFS_DIR}"
-
-KREL="$(cat "$WORKDIR/kernel-release.txt")"
-FW_REPO="${FW_REPO:-$GAOKUN_DIR/firmware}"
-
-if [[ "$(uname -m)" == "aarch64" ]]; then
-  CROSS_COMPILE=""
-else
-  CROSS_COMPILE="aarch64-linux-gnu-"
-fi
-
-sudo make -C "$KERN_SRC" O="$KERN_OUT" ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" \
-  INSTALL_MOD_PATH="$ROOTFS_DIR" modules_install
-sudo rm -f "$ROOTFS_DIR/lib/modules/$KREL/build" "$ROOTFS_DIR/lib/modules/$KREL/source"
-
-sudo mkdir -p "$ROOTFS_DIR/boot"
-sudo cp "$KERN_OUT/arch/arm64/boot/Image" "$ROOTFS_DIR/boot/vmlinuz-$KREL"
-sudo mkdir -p "$ROOTFS_DIR/boot/dtb-$KREL/qcom"
-sudo cp "$KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb" \
-  "$ROOTFS_DIR/boot/dtb-$KREL/qcom/"
-
-test -d "$FW_REPO"
-sudo mkdir -p "$ROOTFS_DIR/lib/firmware"
-sudo cp -r "$FW_REPO"/. "$ROOTFS_DIR/lib/firmware/"
 
 sudo mkdir -p \
   "$ROOTFS_DIR/usr/local/bin" \
