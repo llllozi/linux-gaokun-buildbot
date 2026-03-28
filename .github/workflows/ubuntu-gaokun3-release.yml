@@ -155,6 +155,11 @@ jobs:
 
           sudo tar -xzf "$UBUNTU_BASE_TAR" -C "$ROOTFS_DIR"
 
+          if [ -L "$ROOTFS_DIR/etc/resolv.conf" ] || [ -e "$ROOTFS_DIR/etc/resolv.conf" ]; then
+            sudo mv "$ROOTFS_DIR/etc/resolv.conf" "$ROOTFS_DIR/etc/resolv.conf.bak"
+          fi
+          sudo cp /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
+
           sudo mount --bind /dev "$ROOTFS_DIR/dev"
           sudo mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
           sudo mount -t proc proc "$ROOTFS_DIR/proc"
@@ -185,6 +190,11 @@ jobs:
 
             apt-get clean
           '
+
+          sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
+          if [ -e "$ROOTFS_DIR/etc/resolv.conf.bak" ]; then
+            sudo mv "$ROOTFS_DIR/etc/resolv.conf.bak" "$ROOTFS_DIR/etc/resolv.conf"
+          fi
 
           sudo umount "$ROOTFS_DIR/dev/pts"
           sudo umount "$ROOTFS_DIR/dev"

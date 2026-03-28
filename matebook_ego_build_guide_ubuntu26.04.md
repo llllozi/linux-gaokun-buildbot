@@ -125,6 +125,9 @@ sudo mount -t sysfs sys $ROOTFS_DIR/sys
 sudo mount -t tmpfs tmpfs $ROOTFS_DIR/run
 
 # 复制 DNS 配置以便 chroot 内可以联网
+if [ -L "$ROOTFS_DIR/etc/resolv.conf" ] || [ -e "$ROOTFS_DIR/etc/resolv.conf" ]; then
+    sudo mv $ROOTFS_DIR/etc/resolv.conf $ROOTFS_DIR/etc/resolv.conf.bak
+fi
 sudo cp /etc/resolv.conf $ROOTFS_DIR/etc/resolv.conf
 
 sudo chroot $ROOTFS_DIR /bin/bash
@@ -171,6 +174,15 @@ apt-get install -y \
 
 apt-get clean
 exit
+```
+
+**恢复原有的 DNS 配置：**
+
+```bash
+sudo rm -f $ROOTFS_DIR/etc/resolv.conf
+if [ -e "$ROOTFS_DIR/etc/resolv.conf.bak" ]; then
+    sudo mv $ROOTFS_DIR/etc/resolv.conf.bak $ROOTFS_DIR/etc/resolv.conf
+fi
 ```
 
 回到宿主机，安装内核、模块、固件和本地工具到 rootfs：
