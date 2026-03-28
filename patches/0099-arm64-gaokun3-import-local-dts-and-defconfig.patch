@@ -1,13 +1,13 @@
-From 9124136cac6ebcdf0bfab1d77784bb8147b45724 Mon Sep 17 00:00:00 2001
+From 74aa0595adefdee6726534ab647e4603492a8c2c Mon Sep 17 00:00:00 2001
 From: cool <bilibili@att.net>
-Date: Fri, 27 Mar 2026 21:10:29 +0800
+Date: Sat, 28 Mar 2026 09:59:11 +0800
 Subject: [PATCH] arm64: gaokun3: import local dts and defconfig
 
 ---
- .../qcom/sc8280xp-huawei-gaokun3-camera.dtsi  | 149 ++++++
+ .../qcom/sc8280xp-huawei-gaokun3-camera.dtsi  | 149 +++++
  .../boot/dts/qcom/sc8280xp-huawei-gaokun3.dts | 371 ++++++++++---
- arch/arm64/configs/gaokun_defconfig           | 504 ++++++++++++++++++
- 3 files changed, 940 insertions(+), 84 deletions(-)
+ arch/arm64/configs/gaokun_defconfig           | 507 ++++++++++++++++++
+ 3 files changed, 943 insertions(+), 84 deletions(-)
  create mode 100644 arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-camera.dtsi
  create mode 100644 arch/arm64/configs/gaokun_defconfig
 
@@ -850,10 +850,10 @@ index 9819454abe13..6e661a2751bb 100644
  
 diff --git a/arch/arm64/configs/gaokun_defconfig b/arch/arm64/configs/gaokun_defconfig
 new file mode 100644
-index 000000000000..a0c63f56b30e
+index 000000000000..da8b1187d713
 --- /dev/null
 +++ b/arch/arm64/configs/gaokun_defconfig
-@@ -0,0 +1,504 @@
+@@ -0,0 +1,507 @@
 +CONFIG_LOCALVERSION="-gaokun3"
 +# CONFIG_LOCALVERSION_AUTO is not set
 +CONFIG_SYSVIPC=y
@@ -1236,6 +1236,9 @@ index 000000000000..a0c63f56b30e
 +CONFIG_QCOM_HIDMA_MGMT=y
 +CONFIG_QCOM_HIDMA=y
 +CONFIG_UDMABUF=y
++CONFIG_DMABUF_HEAPS=y
++CONFIG_DMABUF_HEAPS_SYSTEM=y
++CONFIG_DMABUF_HEAPS_CMA=y
 +# CONFIG_VIRTIO_MENU is not set
 +# CONFIG_VHOST_MENU is not set
 +# CONFIG_SURFACE_PLATFORMS is not set
@@ -1358,6 +1361,3 @@ index 000000000000..a0c63f56b30e
 +CONFIG_DEBUG_FS=y
 +# CONFIG_FTRACE is not set
 +# CONFIG_RUNTIME_TESTING_MENU is not set
--- 
-2.43.0
-
