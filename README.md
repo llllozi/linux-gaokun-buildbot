@@ -13,14 +13,17 @@ Build scripts, patches, kernel config, DTS files, tools, and firmware for Linux 
 - `tools/`: device-specific helper scripts and service files
 - `scripts/ci/`: workflow build, image creation, and packaging scripts
 
-The image pipeline now builds and installs a dedicated RPM set:
-`kernel-gaokun`, `kernel-modules-gaokun`, `kernel-devel-gaokun`, and
-`linux-firmware-gaokun`.
+The image pipeline now builds and installs a dedicated package set:
+
+- **Fedora (RPM)**: `kernel-gaokun3`, `kernel-modules-gaokun3`, `kernel-devel-gaokun3`, `linux-firmware-gaokun3`
+- **Ubuntu (DEB)**: `linux-image-gaokun3`, `linux-modules-gaokun3`, `linux-headers-gaokun3`, `linux-firmware-gaokun3`
 
 ## Getting started
 
-- Build guide (Chinese): [matebook_ego_build_guide_fedora44.md](matebook_ego_build_guide_fedora44.md)
-- GitHub Actions workflow: [.github/workflows/fedora-gaokun3-release.yml](.github/workflows/fedora-gaokun3-release.yml)
+- Build guide – Fedora 44 (Chinese): [matebook_ego_build_guide_fedora44.md](matebook_ego_build_guide_fedora44.md)
+- Build guide – Ubuntu 26.04 (Chinese): [matebook_ego_build_guide_ubuntu26.04.md](matebook_ego_build_guide_ubuntu26.04.md)
+- GitHub Actions – Fedora: [.github/workflows/fedora-gaokun3-release.yml](.github/workflows/fedora-gaokun3-release.yml)
+- GitHub Actions – Ubuntu: [.github/workflows/ubuntu-gaokun3-release.yml](.github/workflows/ubuntu-gaokun3-release.yml)
 
 ## References
 

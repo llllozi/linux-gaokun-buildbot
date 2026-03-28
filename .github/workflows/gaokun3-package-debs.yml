@@ -1,0 +1,125 @@
+name: Build Gaokun3 Package DEBs
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_tag:
+        description: Linux kernel tag
+        required: true
+        default: "v7.0-rc5"
+      package_release_tag:
+        description: Fixed GitHub release tag used for package assets
+        required: true
+        default: "gaokun3-packages-deb"
+  workflow_call:
+    inputs:
+      kernel_tag:
+        description: Linux kernel tag
+        required: true
+        type: string
+      package_release_tag:
+        description: Fixed GitHub release tag used for package assets
+        required: false
+        default: "gaokun3-packages-deb"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-package-debs:
+    runs-on: ubuntu-24.04-arm
+    env:
+      TZ: UTC
+      KERNEL_TAG: ${{ inputs.kernel_tag || github.event.inputs.kernel_tag }}
+      PACKAGE_RELEASE_TAG: ${{ inputs.package_release_tag || github.event.inputs.package_release_tag }}
+      GAOKUN_DIR: ${{ github.workspace }}
+      WORKDIR: ${{ github.workspace }}/build-packages
+      KERN_SRC: ${{ github.workspace }}/build-packages/mainline-linux
+      KERN_OUT: ${{ github.workspace }}/build-packages/kernel-out
+      ARTIFACT_DIR: ${{ github.workspace }}/build-packages/artifacts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Checkout Linux source
+        uses: actions/checkout@v6
+        with:
+          repository: torvalds/linux
+          ref: ${{ env.KERNEL_TAG }}
+          fetch-depth: 1
+          path: build-packages/mainline-linux
+
+      - name: Install host dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            git make gcc bc bison flex cpio rsync kmod \
+            libssl-dev libelf-dev dwarves ccache dpkg-dev
+
+      - name: Restore ccache
+        uses: actions/cache@v5
+        with:
+          path: ~/.ccache
+          key: gaokun3-packages-deb-ccache-${{ env.KERNEL_TAG }}-${{ hashFiles('patches/*.patch', 'defconfig/**', 'dts/**', 'drivers/**', 'packaging/**', 'firmware/**', 'scripts/ci/*.sh', '.github/workflows/gaokun3-package-debs.yml') }}
+          restore-keys: |
+            gaokun3-packages-deb-ccache-${{ env.KERNEL_TAG }}-
+            gaokun3-packages-deb-ccache-
+
+      - name: Build gaokun kernel tree
+        run: |
+          set -euxo pipefail
+          mkdir -p "$WORKDIR" "$KERN_OUT" "$ARTIFACT_DIR"
+
+          if [[ "$(uname -m)" == "aarch64" ]]; then
+            CROSS_COMPILE=""
+          else
+            CROSS_COMPILE="aarch64-linux-gnu-"
+          fi
+
+          export ARCH=arm64
+          export CCACHE_DIR="${CCACHE_DIR:-$HOME/.ccache}"
+          export PATH="/usr/lib/ccache:$PATH"
+
+          git -C "$KERN_SRC" config user.name "github-actions[bot]"
+          git -C "$KERN_SRC" config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git -C "$KERN_SRC" am "$GAOKUN_DIR"/patches/*.patch
+
+          unset KCONFIG_CONFIG
+          make -C "$KERN_SRC" O="$KERN_OUT" ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" gaokun3_defconfig
+          make -C "$KERN_SRC" O="$KERN_OUT" ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
+          make -C "$KERN_SRC" O="$KERN_OUT" ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)"
+          make -C "$KERN_SRC" O="$KERN_OUT" ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" modules_prepare
+
+          KREL="$(cat "$KERN_OUT/include/config/kernel.release")"
+          echo "$KREL" > "$WORKDIR/kernel-release.txt"
+
+      - name: Build DEB packages
+        run: |
+          scripts/ci/70_build_package_debs.sh
+
+      - name: Upload build artifacts (workflow)
+        uses: actions/upload-artifact@v6
+        with:
+          name: gaokun3-package-debs
+          path: |
+            ${{ env.ARTIFACT_DIR }}/*.deb
+            ${{ env.ARTIFACT_DIR }}/package-manifest.json
+            ${{ env.ARTIFACT_DIR }}/package-release-body.md
+
+      - name: Publish package release
+        uses: softprops/action-gh-release@v2.6.1
+        with:
+          tag_name: ${{ env.PACKAGE_RELEASE_TAG }}
+          name: gaokun3 package DEBs
+          body_path: ${{ env.ARTIFACT_DIR }}/package-release-body.md
+          prerelease: false
+          make_latest: false
+          append_body: false
+          overwrite_files: true
+          files: |
+            ${{ env.ARTIFACT_DIR }}/*.deb
+            ${{ env.ARTIFACT_DIR }}/package-manifest.json
