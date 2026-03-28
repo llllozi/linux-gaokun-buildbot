@@ -201,10 +201,12 @@ sudo mkdir -p $ROOTFS_DIR/boot
 sudo cp $KERN_OUT/arch/arm64/boot/Image \
     $ROOTFS_DIR/boot/vmlinuz-$KREL
 
-# Ubuntu 风格：dtb 放在 /usr/lib/linux-image-$KREL/ 下
+# Ubuntu 风格：DTB 存放路径（GRUB 10_linux 脚本需要命名为 /boot/dtb-$KREL）
 sudo mkdir -p $ROOTFS_DIR/usr/lib/linux-image-$KREL/qcom
 sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb \
-    $ROOTFS_DIR/usr/lib/linux-image-$KREL/qcom/
+     $ROOTFS_DIR/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb
+sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb \
+     $ROOTFS_DIR/boot/dtb-$KREL
 
 # 直接复制项目内置的最小固件集
 sudo mkdir -p $ROOTFS_DIR/lib/firmware
@@ -413,34 +415,30 @@ MODEOF
 update-initramfs -c -k $KREL
 
 # 配置 GRUB
-cat > /etc/default/grub <<GRUBEOF
+cat > /etc/default/grub <<EOF
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_DISTRIBUTOR="Ubuntu"
 GRUB_CMDLINE_LINUX_DEFAULT=""
 GRUB_CMDLINE_LINUX="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
-GRUB_DTB="qcom/sc8280xp-huawei-gaokun3.dtb"
-GRUBEOF
+EOF
 
 echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
 grub-install --target=arm64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --force
 update-grub
 sed -i '/^GRUB_DISABLE_OS_PROBER=true$/d' /etc/default/grub
 
-# 给 EFI 分区写一个桥接 grub.cfg，按 rootfs UUID 找到真正菜单
-ROOT_UUID="$(blkid -s UUID -o value /dev/disk/by-label/rootfs)"
-mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/ubuntu
-cat > /boot/efi/EFI/BOOT/grub.cfg <<EOF
-search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-if [ -f (\$root)/boot/grub/grub.cfg ]; then
-    set prefix=(\$root)/boot/grub
-    configfile (\$root)/boot/grub/grub.cfg
-else
-    echo "ERROR: grub.cfg not found on rootfs UUID ${ROOT_UUID}"
-    sleep 5
-fi
-EOF
-cp /boot/efi/EFI/BOOT/grub.cfg /boot/efi/EFI/ubuntu/grub.cfg
+# 给 EFI 分区写一个桥接 grub.cfg，按获取 rootfs 的 UUID
+ROOT_UUID=$(blkid -s UUID -o value /dev/disk/by-label/rootfs)
+
+sudo mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/ubuntu
+sudo bash -c "cat > /boot/efi/EFI/BOOT/grub.cfg <<EOF
+search.fs_uuid ${ROOT_UUID} root
+set prefix=(\\\$root)'/boot/grub'
+configfile \\\$prefix/grub.cfg
+EOF"
+
+sudo cp /boot/efi/EFI/BOOT/grub.cfg /boot/efi/EFI/ubuntu/grub.cfg
 
 # 可选：确认最终 grub.cfg 中已经带上 devicetree
 grep -n "devicetree\|dtb" /boot/grub/grub.cfg

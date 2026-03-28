@@ -3,7 +3,7 @@ Description=Sync user monitors.xml to GDM on first boot
 After=gdm.service
 Wants=gdm.service
 ConditionPathExists=/home/user/.config/monitors.xml
-ConditionPathExists=!/var/lib/gdm/.gaokun-monitors-synced
+ConditionPathExists=!/var/lib/.gaokun-monitors-synced
 
 [Service]
 Type=oneshot

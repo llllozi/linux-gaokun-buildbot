@@ -110,6 +110,12 @@ cat > /home/user/.config/monitors.xml <<'EOF'
 EOF
 chown user:user /home/user/.config/monitors.xml
 
+install -d -m 1777 -o root -g root /tmp/.X11-unix
+mkdir -p /etc/tmpfiles.d
+cat > /etc/tmpfiles.d/gaokun-x11.conf <<'EOF'
+d /tmp/.X11-unix 1777 root root -
+EOF
+
 systemctl enable gdm NetworkManager ssh huawei-touchpad.service \
   gdm-monitor-sync.service || true
 
@@ -147,13 +153,15 @@ MODEOF
 
 update-initramfs -c -k "$KREL"
 
+# Ubuntu GRUB's 10_linux looks for /boot/dtb-$KREL
+cp "/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb" "/boot/dtb-$KREL"
+
 cat > /etc/default/grub <<GRUBEOF
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_DISTRIBUTOR="Ubuntu"
 GRUB_CMDLINE_LINUX_DEFAULT=""
 GRUB_CMDLINE_LINUX="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
-GRUB_DTB="qcom/sc8280xp-huawei-gaokun3.dtb"
 GRUBEOF
 
 echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
@@ -163,18 +171,14 @@ sed -i '/^GRUB_DISABLE_OS_PROBER=true$/d' /etc/default/grub
 
 ROOT_UUID="$(blkid -s UUID -o value /dev/disk/by-label/rootfs)"
 mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/ubuntu
-cat > /boot/efi/EFI/BOOT/grub.cfg <<EOF
-search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-if [ -f (\$root)/boot/grub/grub.cfg ]; then
-    set prefix=(\$root)/boot/grub
-    configfile (\$root)/boot/grub/grub.cfg
-else
-    echo "ERROR: grub.cfg not found on rootfs UUID ${ROOT_UUID}"
-    sleep 5
-fi
+tee "/boot/efi/EFI/BOOT/grub.cfg" >/dev/null <<EOF
+search.fs_uuid ${ROOT_UUID} root
+set prefix=(\$root)'/boot/grub'
+configfile \$prefix/grub.cfg
 EOF
-cp /boot/efi/EFI/BOOT/grub.cfg /boot/efi/EFI/ubuntu/grub.cfg
+cp "/boot/efi/EFI/BOOT/grub.cfg" "/boot/efi/EFI/ubuntu/grub.cfg"
 
+# Validate GRUB generated correctly
 grep -n "devicetree\|dtb" /boot/grub/grub.cfg || true
 CHROOT_EOF
 
