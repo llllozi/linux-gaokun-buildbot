@@ -29,11 +29,13 @@ The image pipeline now builds and installs a dedicated package set:
 
 ## References
 
-- [right-0903/linux-gaokun](https://github.com/right-0903/linux-gaokun)
-- [TheUnknownThing/linux-gaokun](https://github.com/TheUnknownThing/linux-gaokun)
-- [whitelewi1-ctrl/matebook-e-go-linux](https://github.com/whitelewi1-ctrl/matebook-e-go-linux)
-- [gaokun on AUR](https://aur.archlinux.org/packages?O=0&K=gaokun)
-- [chenxuecong2/firmware-huawei-gaokun3](https://github.com/chenxuecong2/firmware-huawei-gaokun3)
-- [awarson2233/EGoTouchRev-rebuild](https://github.com/awarson2233/EGoTouchRev-rebuild)
-- [BigfootACA/simple-init](https://github.com/BigfootACA/simple-init)
-- [TravMurav/slbounce](https://github.com/TravMurav/slbounce)
+- [right-0903/linux-gaokun](https://github.com/right-0903/linux-gaokun) : The main source of the kernel patches and device support work, with detailed commit messages and explanations.
+- [TheUnknownThing/linux-gaokun](https://github.com/TheUnknownThing/linux-gaokun) : Another fork of the kernel patches and device support work, with some unique commits and explanations for Touchscreen and EC.
+- [whitelewi1-ctrl/matebook-e-go-linux](https://github.com/whitelewi1-ctrl/matebook-e-go-linux) : Some additional resources and modifications for Gaokun3 Linux support.
+- [gaokun on AUR](https://aur.archlinux.org/packages?O=0&K=gaokun) : Several AUR packages built for Gaokun3, including kernel and firmware packages.
+- [chenxuecong2/firmware-huawei-gaokun3](https://github.com/chenxuecong2/firmware-huawei-gaokun3) : A firmware bundle repository for Gaokun3.
+- [awarson2233/EGoTouchRev-rebuild](https://github.com/awarson2233/EGoTouchRev-rebuild) : A repository focused on the touchscreen firmware and driver support for Gaokun3 on Windows.
+- [BigfootACA/simple-init](https://github.com/BigfootACA/simple-init) : A simple UEFI application used as a boot manager for WoA devices.
+- [TravMurav/slbounce](https://github.com/TravMurav/slbounce) : A UEFI application that enables EL2 support and Secure Launch on Gaokun3.
+- [TravMurav/linux](https://github.com/TravMurav/linux/tree/x13s-6.18-v1.1-cxsd) : A Linux kernel tree with some useful patches for EL2 support on sc8280xp platforms.
+- [stephan-gh/qebspil](https://github.com/stephan-gh/qebspil) : A UEFI application that pre-launches the DSP firmware on Qualcomm platforms, which can be used in the boot chain before launching Linux.

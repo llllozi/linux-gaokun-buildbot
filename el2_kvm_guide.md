@@ -1,29 +1,29 @@
 # Huawei MateBook E Go 2023 EL2 + KVM 指南
 
-## 1. 目标
+## 1. 目标概述
 
-- 让 MateBook E Go 2023 通过 Secure Launch 进入 EL2。
+- 使 MateBook E Go 2023 通过 Secure Launch 进入 EL2。
+- 在 EL2 模式下补全 DSP 启动链，尽可能恢复音频等依赖 remoteproc 的功能。
 - 在 Linux 中启用可用的 KVM。
-- 在 EL2 模式下补齐 DSP 启动链，尽量恢复音频等依赖 remoteproc 的功能。
 
-## 2. 结论先说
+## 2. 结论
 
-当前要点不是只有 `slbounce`：
+仅凭 `slbounce` 即可进入 EL2，但其不负责 Linux 侧的 DSP 启动。若未通过 `qebspil` 预先启动 DSP，Linux 中将完全没有声音。`qebspil` 的作用是：在 `ExitBootServices()` 执行之前，依据设备树中已启用的 remoteproc 节点，将对应固件加载并启动。对于 EL2 Linux 而言，这一步通常是音频功能能否正常工作的关键分界点。
 
-1. `slbounce` 负责在 `ExitBootServices()` 时切到 EL2。
-2. 音频依赖的 ADSP/CDSP/SLPI 这类 remoteproc，在 EL2 下通常不能再指望 Qualcomm 原有 hypervisor 替你拉起。
-3. 因此需要额外引入 `qebspil`，在退出 UEFI 前先把 DSP 固件启动。
-4. Linux 内核侧还需要带上 `qebspil` 对应的 remoteproc/PAS handover 补丁；否则即使 DSP 被提前启动，内核也可能无法正确接管。
+1. `slbounce` 负责在 `ExitBootServices()` 时完成向 EL2 的切换。
+2. 音频所依赖的 ADSP/CDSP/SLPI 等 remoteproc，在 EL2 下通常无法再依赖 Qualcomm 原有 hypervisor 自动拉起。
+3. 因此需要额外引入 `qebspil`，在退出 UEFI 前预先启动 DSP 固件。
+4. Linux 内核侧还需合入 `qebspil` 对应的 remoteproc/PAS handover 补丁；否则即使 DSP 已被提前启动，内核也可能无法正确接管。
 
-## 3. 需要的组件
+## 3. 所需组件
 
-EFI 侧至少需要：
+EFI 侧至少需要以下文件：
 
 - `BOOTAA64.EFI`：自定义包装器
 - `slbounceaa64.efi`
 - `tcblaunch.exe`
 - `qebspilaa64.efi`
-- `SimpleInit-AARCH64.efi`（或你自己的下一级引导器）
+- `SimpleInit-AARCH64.efi`（或其他自定义下一级引导器）
 - `/firmware/...` 下的 DSP 固件文件
 
 内核侧至少需要：
@@ -32,18 +32,12 @@ EFI 侧至少需要：
 - `CONFIG_VIRTUALIZATION=y`
 - `CONFIG_KVM=y`
 - `CONFIG_REMOTEPROC=y`
-- Qualcomm remoteproc/PAS 相关驱动可用
+- Qualcomm remoteproc/PAS 相关驱动
 - qebspil 对应的 handover / late-attach / EL2-PAS 补丁
 
-## 4. 为什么只用 slbounce 还不够
+## 4. 推荐启动链
 
-`slbounce` 解决的是 **EL2 接管**；它不负责替 Linux 启动 DSP。
-
-而 `qebspil` 的用途是：在 `ExitBootServices()` 之前，根据 DT 中启用的 remoteproc 节点，把对应固件先加载并启动。对 EL2 Linux 来说，这一步通常正是音频是否能工作的分水岭。
-
-## 5. 推荐启动链
-
-建议链路改成：
+建议将启动链调整为如下顺序：
 
 1. `\EFI\BOOT\BOOTAA64.EFI`
 2. `\slbounceaa64.efi`
@@ -53,13 +47,25 @@ EFI 侧至少需要：
 
 说明：
 
-- `slbounce` 仍然负责 Secure Launch / EL2 切换。
+- `slbounce` 仍负责 Secure Launch 及 EL2 切换。
 - `qebspil` 负责在退出 UEFI 前预启动 DSP。
-- GRUB 菜单必须显式指定 `-el2.dtb`。
+- GRUB 菜单项须显式指定 `-el2.dtb`。
 
-## 6. 重新编译项
+## 5. 编译说明
 
-### 6.1 编译 BOOTAA64.EFI 包装器
+当前可直接使用仓库内 `tools/el2` 中的包装器及必要引导组件，主要文件如下：
+
+- `loader_main.c`：包装器链式启动逻辑（当前为 slbounce → Simple Init，可按需修改）。
+- `Makefile`：AArch64 GNU-EFI 交叉编译脚本。
+- `gnu-efi/`：编译所需头文件与库。
+- `slbounceaa64.efi`：slbounce 驱动文件。
+- `tcblaunch.exe`：已验证版本的 TCB 文件。
+- `bootaa64.efi`：包装器编译产物。
+- `qebspilaa64.efi`：qebspil 编译产物。
+
+如需自行编译，可参考以下步骤。
+
+### 5.1 编译 BOOTAA64.EFI 包装器
 
 ```bash
 sudo apt-get update
@@ -74,7 +80,23 @@ make
 
 - `tools/el2/bootaa64.efi`
 
-### 6.2 编译 qebspil
+部署到 EFI 分区 `\EFI\BOOT\BOOTAA64.EFI`，作为新的默认引导程序。
+
+### 5.2 编译 slbounce
+
+```bash
+git clone --recursive https://github.com/TravMurav/slbounce.git
+cd slbounce
+make CROSS_COMPILE=aarch64-linux-gnu-
+```
+
+产物：
+
+- `out/slbounce.efi`
+
+重命名为 `slbounceaa64.efi` 后部署至 EFI 分区根目录。
+
+### 5.3 编译 qebspil
 
 ```bash
 git clone --recursive https://github.com/stephan-gh/qebspil.git
@@ -86,19 +108,21 @@ make CROSS_COMPILE=aarch64-linux-gnu-
 
 - `out/qebspilaa64.efi`
 
-如需强制启动所有 remoteproc（不只限带 `qcom,broken-reset` 的节点）：
+部署至 EFI 分区根目录。
+
+如需强制启动所有 remoteproc（而非仅限带有 `qcom,broken-reset` 标记的节点）：
 
 ```bash
 make CROSS_COMPILE=aarch64-linux-gnu- QEBSPIL_ALWAYS_START=1
 ```
 
-不确定平台 DTS 是否完整时，先不要加这个开关。
+若对平台 DTS 的完整性尚无把握，建议暂不启用此选项。
 
-## 7. 需要补的内核部分
+## 6. 内核补全说明
 
-### 7.1 必选
+### 6.1 必选配置项
 
-重新编译内核前，至少确认：
+重新编译内核前，至少确认以下配置项已启用：
 
 ```text
 CONFIG_VIRTUALIZATION=y
@@ -111,57 +135,57 @@ CONFIG_QCOM_Q6V5_MSS=y
 CONFIG_QCOM_PIL_INFO=y
 ```
 
-如果你的树里符号名略有变化，以实际内核版本为准，但原则不变：**KVM + remoteproc + qcom PAS/Q6V5 必须齐**。
+不同内核版本的符号名称可能略有差异，请以实际版本为准，但核心原则不变：**KVM、remoteproc 及 qcom PAS/Q6V5 必须齐备**。
 
-### 7.2 必补的补丁方向
+### 6.2 必要补丁方向
 
-当前可直接使用仓库内 `patches/el2` 这组补丁；按语义看，重点是下面三类：
+当前可直接使用仓库内 `patches/el2` 中的补丁集。按语义分类，重点涉及以下三个方向：
 
-1. **remoteproc handover / late attach**  
-   让 Linux 能接管 qebspil 预启动的 remoteproc，而不是把它当成异常状态。
+1. **remoteproc handover / late attach**
+   使 Linux 能够接管由 qebspil 预先启动的 remoteproc，而非将其识别为异常状态。
 
-2. **qcom PAS 在 EL2 下的支持**  
-   当 Linux 自己管理 IOMMU / stream ID / resource table 时，允许 PAS 正确认证和接管固件。
+2. **qcom PAS 在 EL2 下的支持**
+   当 Linux 自行管理 IOMMU / stream ID / resource table 时，允许 PAS 正确完成固件认证与接管。
 
-3. **ADSP lite firmware / DTB 清理与接管修正**  
-   否则旧的 lite ADSP 占着内存或状态，完整音频固件接不上，仍可能没声音。
+3. **ADSP lite firmware / DTB 清理与接管修正**
+   若不处理，旧的 lite ADSP 可能占用内存或保留异常状态，导致完整音频固件无法正常加载，仍可能出现无声问题。
 
-## 8. 固件准备
+## 7. 固件准备
 
-`qebspil` 读取 DT 中的 `firmware-name`，所以要把对应固件放到 ESP 的顶层 `/firmware` 目录。
+`qebspil` 通过读取设备树中的 `firmware-name` 属性来定位固件，因此需将对应固件文件放置于 ESP 顶层的 `/firmware` 目录下。
 
-建议先在能正常工作的系统里确认需要哪些文件：
+建议先在可正常工作的系统中确认所需文件：
 
 ```bash
 find /sys/firmware/devicetree -name firmware-name -exec cat {} + | xargs -0n1
 ```
 
-然后把对应文件从 `/lib/firmware/` 或 Windows 分区拷到 EFI 分区。SC8280XP 常见至少包括：
+然后将对应文件从 `/lib/firmware/` 或 Windows 分区复制至 EFI 分区。SC8280XP 平台通常至少需要以下文件：
 
 - `qcadsp*.mbn`
 - `qccdsp*.mbn`
 - `qcslpi*.mbn`
 
-如果你的机器音频仍不工作，第一优先检查的就是这里。
+若音频功能仍不正常，应首先排查此处是否存在问题。
 
-## 9. EFI 部署
+## 8. EFI 部署
 
-先备份再替换：
+建议备份原有文件后再行替换：
 
 1. 备份 `\EFI\BOOT\BOOTAA64.EFI`
-2. 替换为 `tools/el2/bootaa64.efi`
-3. EFI 分区根目录放：
+2. 将其替换为 `tools/el2/bootaa64.efi`
+3. 在 EFI 分区根目录放置：
    - `\slbounceaa64.efi`
    - `\tcblaunch.exe`
    - `\qebspilaa64.efi`
-4. EFI 分区放：
+4. 在 EFI 分区放置：
    - `\EFI\BOOT\SimpleInit-AARCH64.efi`
-5. EFI 分区顶层放：
+5. 在 EFI 分区顶层放置：
    - `\firmware\...`
-6. Simple Init 中跳转发行版 GRUB
-7. GRUB 中选择 EL2 菜单项
+6. 通过 Simple Init 跳转至发行版 GRUB
+7. 在 GRUB 中选择 EL2 菜单项
 
-建议目录类似：
+建议的目录结构如下：
 
 ```text
 /boot/efi
@@ -187,9 +211,9 @@ find /sys/firmware/devicetree -name firmware-name -exec cat {} + | xargs -0n1
 └── tcblaunch.exe
 ```
 
-## 10. 启动后验证
+## 9. 启动后验证
 
-进系统后执行：
+进入系统后，执行以下命令进行验证：
 
 ```bash
 uname -a
@@ -198,30 +222,30 @@ ls -l /dev/kvm
 ls /sys/class/remoteproc/
 ```
 
-重点看：
+重点关注以下几点：
 
 - `/dev/kvm` 是否存在
-- 是否已经在 EL2
-- remoteproc 是否存在且不是全部离线
-- 是否有 ADSP/CDSP/SLPI 相关报错
+- 系统是否已运行于 EL2
+- remoteproc 节点是否存在且未全部处于离线状态
+- 是否存在 ADSP/CDSP/SLPI 相关错误信息
 
-## 11. 出现“EL2 正常但音频无效”时，排查顺序
+## 10. "EL2 正常但音频无效"排查顺序
 
-1. 是否真的部署了 `qebspilaa64.efi`
-2. ESP 顶层是否存在 `/firmware/...`，且文件名和 DT 的 `firmware-name` 一致
-3. EL2 菜单是否确实加载了 `-el2.dtb`
-4. 内核是否包含 qebspil 对应的 remoteproc/PAS 补丁
-5. `dmesg` 是否出现 ADSP/CDSP handover、PAS、IOMMU、resource table 相关错误
-6. 若 remoteproc 节点未带 `qcom,broken-reset`，再考虑重新编译 `QEBSPIL_ALWAYS_START=1`
+1. 确认是否已部署 `qebspilaa64.efi`
+2. 确认 ESP 顶层 `/firmware/...` 目录是否存在，且文件名与设备树中的 `firmware-name` 属性一致
+3. 确认 EL2 菜单项是否已加载 `-el2.dtb`
+4. 确认内核是否包含 qebspil 对应的 remoteproc/PAS 补丁
+5. 检查 `dmesg` 中是否出现 ADSP/CDSP handover、PAS、IOMMU 或 resource table 相关错误
+6. 若 remoteproc 节点未带有 `qcom,broken-reset` 属性，可考虑重新编译并启用 `QEBSPIL_ALWAYS_START=1`
 
-## 12. 最小建议
+## 11. 最小操作建议
 
-如果你现在的目标是“先把音频救活”，最小动作就是：
+若当前目标仅为恢复音频功能，最小操作步骤如下：
 
-1. 保留现有 `slbounce` 链路
+1. 保留现有 `slbounce` 启动链路
 2. 新增 `qebspilaa64.efi`
-3. 补齐 ESP 上的 `/firmware/...`
-4. 内核合入 qebspil README 指向的 handover/PAS 补丁后重编
-5. 再验证 ADSP/CDSP/SLPI 启动情况
+3. 补全 ESP 上的 `/firmware/...` 目录
+4. 合入 qebspil README 所指向的 handover/PAS 补丁后重新编译内核
+5. 验证 ADSP/CDSP/SLPI 的启动情况
 
-这一步做完之前，不建议只围着 ALSA/声卡驱动继续排查。
+在完成上述步骤之前，不建议将精力继续集中于 ALSA 或声卡驱动层面的排查。

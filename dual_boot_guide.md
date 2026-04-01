@@ -58,7 +58,7 @@ EL2 专用文档：[el2_kvm_guide.md](el2_kvm_guide.md)
 推荐顺序：
 
 1. 先按本篇完成 Windows + Linux 双启动。
-2. 再按 [el2_kvm_guide.md](el2_kvm_guide.md) 部署 `tools/el2` 的 `bootaa64.efi`、`slbounceaa64.efi`、`tcblaunch.exe` 以及 `SimpleInit-AARCH64.efi`。
+2. 再按 [el2_kvm_guide.md](el2_kvm_guide.md) 部署 `tools/el2` 的 `bootaa64.efi`、`slbounceaa64.efi`、`tcblaunch.exe`、`qebspilaa64.efi`、 `SimpleInit-AARCH64.efi` 以及 firmware 文件。
 3. 在 GRUB 中选择 EL2 菜单项启动，并按 EL2 文档完成 KVM 验证。
 
 ## 可选：GRUB 多引导（OS_PROBER）
