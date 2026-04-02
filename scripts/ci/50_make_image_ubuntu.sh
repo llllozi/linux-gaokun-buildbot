@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+: "${GAOKUN_DIR:?missing GAOKUN_DIR}"
 : "${WORKDIR:?missing WORKDIR}"
 : "${ROOTFS_DIR:?missing ROOTFS_DIR}"
 : "${ARTIFACT_DIR:?missing ARTIFACT_DIR}"
 : "${IMAGE_FILE:?missing IMAGE_FILE}"
 : "${IMAGE_SIZE:?missing IMAGE_SIZE}"
+: "${UBUNTU_RELEASE:?missing UBUNTU_RELEASE}"
 
+BUILD_EL2="${BUILD_EL2:-false}"
 KREL="$(cat "$WORKDIR/kernel-release.txt")"
+KREL_EL2=""
+if [[ "$BUILD_EL2" == "true" && -f "$WORKDIR/kernel-release-el2.txt" ]]; then
+  KREL_EL2="$(cat "$WORKDIR/kernel-release-el2.txt")"
+fi
 
+EFI_END_MIB=1025
 truncate -s "$IMAGE_SIZE" "$IMAGE_FILE"
 parted -s "$IMAGE_FILE" mklabel gpt
-parted -s "$IMAGE_FILE" mkpart EFI fat32 1MiB 256MiB
+parted -s "$IMAGE_FILE" mkpart EFI fat32 1MiB "${EFI_END_MIB}MiB"
 parted -s "$IMAGE_FILE" set 1 esp on
-parted -s "$IMAGE_FILE" mkpart rootfs ext4 256MiB 100%
+parted -s "$IMAGE_FILE" mkpart rootfs ext4 "${EFI_END_MIB}MiB" 100%
 
 LOOP="$(sudo losetup --show -fP "$IMAGE_FILE")"
 sudo mkfs.vfat -F32 -n EFI "${LOOP}p1"
@@ -54,7 +62,7 @@ sudo mount -t proc proc "$MNT/proc"
 sudo mount -t sysfs sys "$MNT/sys"
 sudo mount -t tmpfs tmpfs "$MNT/run"
 
-sudo chroot "$MNT" /usr/bin/env KREL="$KREL" /bin/bash -euxo pipefail <<'CHROOT_EOF'
+sudo chroot "$MNT" /usr/bin/env KREL="$KREL" KREL_EL2="$KREL_EL2" BUILD_EL2="$BUILD_EL2" /bin/bash -euxo pipefail <<'CHROOT_EOF'
 echo "ubuntu" > /etc/hostname
 id -u user >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo user
 echo "user:user" | chpasswd
@@ -143,7 +151,7 @@ echo -e "huawei-gaokun-ec\nhuawei-gaokun-battery\nucsi_huawei_gaokun" > /etc/mod
 mkdir -p /etc/modprobe.d
 echo "softdep pinctrl_sc8280xp_lpass_lpi pre: lpasscc_sc8280xp" > /etc/modprobe.d/audio-deps.conf
 
-cat >> /etc/initramfs-tools/modules <<MODEOF
+cat >> /etc/initramfs-tools/modules <<'MODEOF'
 # Storage and USB
 nvme
 phy-qcom-qmp-pcie
@@ -159,80 +167,78 @@ ath11k
 ath11k_pci
 # Input
 i2c-hid-of
-# Audio
-lpasscc_sc8280xp
-snd-soc-sc8280xp
-pinctrl_sc8280xp_lpass_lpi
 MODEOF
 
 update-initramfs -c -k "$KREL"
+if [[ "$BUILD_EL2" == "true" && -n "$KREL_EL2" ]]; then
+  update-initramfs -c -k "$KREL_EL2"
+fi
 
-# Ubuntu GRUB's 10_linux looks for /boot/dtb-$KREL
-cp "/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb" "/boot/dtb-$KREL"
-
-# EL2 DTB is expected in build artifacts; copy it unconditionally.
-cp "/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3-el2.dtb" "/boot/dtb-el2-$KREL"
-
-ROOT_UUID="$(blkid -s UUID -o value /dev/disk/by-label/rootfs)"
-mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/ubuntu
-cat > /etc/default/grub <<'EOF'
-GRUB_DEFAULT=0
-GRUB_TIMEOUT=5
-GRUB_DISTRIBUTOR="Ubuntu"
-GRUB_CMDLINE_LINUX_DEFAULT=""
-GRUB_CMDLINE_LINUX="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
-GRUB_DISABLE_OS_PROBER=true
-GRUB_DISABLE_SUBMENU=false
-GRUB_DISABLE_LINUX_UUID=false
-GRUB_TERMINAL_OUTPUT=gfxterm
-GRUB_GFXMODE=auto
-GRUB_GFXPAYLOAD_LINUX=keep
-GRUB_RECORDFAIL_TIMEOUT=5
-EOF
-
-cat > /tmp/early-grub.cfg <<EOF
-search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-set prefix=(\$root)/boot/grub
-EOF
-
-grub-mkimage -c /tmp/early-grub.cfg \
-    -o /boot/efi/EFI/BOOT/BOOTAA64.EFI \
-    -O arm64-efi -p /boot/grub \
-    part_gpt ext2 fat search search_fs_uuid search_label normal linux \
-    configfile reboot echo test extcmd efifwsetup
-
-rm -f /tmp/early-grub.cfg
-
-cat > /etc/grub.d/11_gaokun_el2 <<SCRIPTEOF
-#!/bin/sh
-exec tail -n +3 \$0
-
-menuentry 'Ubuntu ${KREL} (EL2 Hypervisor)' --class ubuntu --class gnu-linux --class gnu --class os {
-        search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-        linux   /boot/vmlinuz-${KREL} root=UUID=${ROOT_UUID} clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1
-        initrd  /boot/initrd.img-${KREL}
-        devicetree /boot/dtb-el2-${KREL}
-}
-SCRIPTEOF
-chmod +x /etc/grub.d/11_gaokun_el2
-
-update-grub
-
-mkdir -p /boot/grub/arm64-efi
-cp -a /usr/lib/grub/arm64-efi/. /boot/grub/arm64-efi/
-sed -i 's/^GRUB_DISABLE_OS_PROBER=true$/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
-
-cat > /boot/efi/EFI/BOOT/grub.cfg <<EOF
-search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-set prefix=(\$root)/boot/grub
-configfile (\$root)/boot/grub/grub.cfg
-EOF
-cp /boot/efi/EFI/BOOT/BOOTAA64.EFI /boot/efi/EFI/ubuntu/grubaa64.efi
-cp /boot/efi/EFI/BOOT/grub.cfg /boot/efi/EFI/ubuntu/grub.cfg
-
-# Validate GRUB generated correctly
-grep -n "devicetree\|dtb" /boot/grub/grub.cfg || true
+bootctl --esp-path=/boot/efi install
 CHROOT_EOF
+
+MACHINE_ID="$(sudo cat "$MNT/etc/machine-id")"
+ENTRY_DIR="$MNT/boot/efi/loader/entries"
+ESP_OS_DIR="$MNT/boot/efi/gaokun3/ubuntu"
+BASE_ENTRY_FILE="${MACHINE_ID}-ubuntu-gaokun3-${KREL}.conf"
+BASE_CMDLINE="root=UUID=${ROOT_UUID} clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
+
+sudo mkdir -p "$ENTRY_DIR" "$ESP_OS_DIR/$KREL"
+sudo install -Dm644 "$MNT/boot/vmlinuz-$KREL" "$ESP_OS_DIR/$KREL/linux"
+sudo install -Dm644 "$MNT/boot/initrd.img-$KREL" "$ESP_OS_DIR/$KREL/initrd"
+sudo install -Dm644 \
+  "$MNT/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb" \
+  "$ESP_OS_DIR/$KREL/sc8280xp-huawei-gaokun3.dtb"
+
+sudo tee "$MNT/boot/efi/loader/loader.conf" >/dev/null <<EOF
+default ${BASE_ENTRY_FILE}
+timeout 5
+console-mode keep
+editor no
+EOF
+
+sudo tee "$ENTRY_DIR/$BASE_ENTRY_FILE" >/dev/null <<EOF
+title Ubuntu ${UBUNTU_RELEASE}
+version ${KREL}
+machine-id ${MACHINE_ID}
+sort-key gaokun3
+architecture AA64
+linux /gaokun3/ubuntu/${KREL}/linux
+initrd /gaokun3/ubuntu/${KREL}/initrd
+devicetree /gaokun3/ubuntu/${KREL}/sc8280xp-huawei-gaokun3.dtb
+options ${BASE_CMDLINE}
+EOF
+
+if [[ "$BUILD_EL2" == "true" && -n "$KREL_EL2" ]]; then
+  EL2_ENTRY_FILE="${MACHINE_ID}-ubuntu-gaokun3-${KREL_EL2}.conf"
+  EL2_CMDLINE="$BASE_CMDLINE"
+
+  sudo mkdir -p "$ESP_OS_DIR/$KREL_EL2" "$MNT/boot/efi/EFI/systemd/drivers" "$MNT/boot/efi/firmware"
+  sudo install -Dm644 "$MNT/boot/vmlinuz-$KREL_EL2" "$ESP_OS_DIR/$KREL_EL2/linux"
+  sudo install -Dm644 "$MNT/boot/initrd.img-$KREL_EL2" "$ESP_OS_DIR/$KREL_EL2/initrd"
+  sudo install -Dm644 \
+    "$MNT/usr/lib/linux-image-$KREL_EL2/qcom/sc8280xp-huawei-gaokun3-el2.dtb" \
+    "$ESP_OS_DIR/$KREL_EL2/sc8280xp-huawei-gaokun3-el2.dtb"
+  sudo install -Dm644 "$GAOKUN_DIR/tools/el2/slbounceaa64.efi" \
+    "$MNT/boot/efi/EFI/systemd/drivers/slbounceaa64.efi"
+  sudo install -Dm644 "$GAOKUN_DIR/tools/el2/qebspilaa64.efi" \
+    "$MNT/boot/efi/EFI/systemd/drivers/qebspilaa64.efi"
+  sudo install -Dm644 "$GAOKUN_DIR/tools/el2/tcblaunch.exe" \
+    "$MNT/boot/efi/tcblaunch.exe"
+  sudo rsync -a "$MNT/lib/firmware/qcom/" "$MNT/boot/efi/firmware/qcom/"
+
+  sudo tee "$ENTRY_DIR/$EL2_ENTRY_FILE" >/dev/null <<EOF
+title Ubuntu ${UBUNTU_RELEASE} (EL2 Hypervisor)
+version ${KREL_EL2}
+machine-id ${MACHINE_ID}
+sort-key gaokun3-el2
+architecture AA64
+linux /gaokun3/ubuntu/${KREL_EL2}/linux
+initrd /gaokun3/ubuntu/${KREL_EL2}/initrd
+devicetree /gaokun3/ubuntu/${KREL_EL2}/sc8280xp-huawei-gaokun3-el2.dtb
+options ${EL2_CMDLINE}
+EOF
+fi
 
 sync
 

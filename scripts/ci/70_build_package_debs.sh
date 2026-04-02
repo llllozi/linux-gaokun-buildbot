@@ -3,101 +3,48 @@ set -euo pipefail
 
 : "${GAOKUN_DIR:?missing GAOKUN_DIR}"
 : "${WORKDIR:?missing WORKDIR}"
-: "${KERN_SRC:?missing KERN_SRC}"
-: "${KERN_OUT:?missing KERN_OUT}"
 : "${ARTIFACT_DIR:?missing ARTIFACT_DIR}"
 : "${KERNEL_TAG:?missing KERNEL_TAG}"
 : "${PACKAGE_RELEASE_TAG:?missing PACKAGE_RELEASE_TAG}"
 
-KREL="$(cat "$WORKDIR/kernel-release.txt")"
+BUILD_EL2="${BUILD_EL2:-false}"
+KERN_SRC_BASE="${KERN_SRC_BASE:-${KERN_SRC:-}}"
+KERN_OUT_BASE="${KERN_OUT_BASE:-${KERN_OUT:-}}"
+KERN_SRC_EL2="${KERN_SRC_EL2:-$WORKDIR/mainline-linux-el2}"
+KERN_OUT_EL2="${KERN_OUT_EL2:-$WORKDIR/kernel-out-el2}"
+
+: "${KERN_SRC_BASE:?missing KERN_SRC_BASE}"
+: "${KERN_OUT_BASE:?missing KERN_OUT_BASE}"
+
+BASE_KREL="$(cat "$WORKDIR/kernel-release.txt")"
+EL2_KREL=""
+if [[ -f "$WORKDIR/kernel-release-el2.txt" ]]; then
+  EL2_KREL="$(cat "$WORKDIR/kernel-release-el2.txt")"
+fi
+
 DEB_TOPDIR="$WORKDIR/debbuild"
 BUILDROOT_DIR="$WORKDIR/package-buildroots"
-IMAGE_STAGE="$BUILDROOT_DIR/linux-image-gaokun3"
-MODULES_STAGE="$BUILDROOT_DIR/linux-modules-gaokun3"
-MODULES_RAW_STAGE="$BUILDROOT_DIR/linux-modules-raw"
-HEADERS_STAGE="$BUILDROOT_DIR/linux-headers-gaokun3"
-HEADERS_TREE="$HEADERS_STAGE/usr/src/linux-headers-$KREL"
-FIRMWARE_STAGE="$BUILDROOT_DIR/linux-firmware-gaokun3"
-DEB_VERSION="${KREL//-/\~}-1"
 DEB_ARCH="arm64"
+FIRMWARE_DEB_VERSION="${FIRMWARE_DEB_VERSION:-$(date -u +%Y%m%d)-1}"
+BUILD_TIME_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 mkdir -p "$ARTIFACT_DIR" "$DEB_TOPDIR"
-
-# ---------------------------------------------------------------------------
-# Stage helpers
-# ---------------------------------------------------------------------------
-
-prepare_image_package() {
-  rm -rf "$IMAGE_STAGE"
-  # Ubuntu style: vmlinuz in /boot, dtb in /usr/lib/linux-image-$KREL
-  mkdir -p "$IMAGE_STAGE/boot"
-  mkdir -p "$IMAGE_STAGE/usr/lib/linux-image-$KREL/qcom"
-
-  install -Dm644 "$KERN_OUT/arch/arm64/boot/Image" \
-    "$IMAGE_STAGE/boot/vmlinuz-$KREL"
-  install -Dm644 "$KERN_OUT/System.map" \
-    "$IMAGE_STAGE/boot/System.map-$KREL"
-  install -Dm644 "$KERN_OUT/.config" \
-    "$IMAGE_STAGE/boot/config-$KREL"
-  install -Dm644 "$KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb" \
-    "$IMAGE_STAGE/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb"
-  install -Dm644 "$KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-el2.dtb" \
-    "$IMAGE_STAGE/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3-el2.dtb"
-}
-
-prepare_modules_package() {
-  rm -rf "$MODULES_STAGE" "$MODULES_RAW_STAGE"
-  mkdir -p "$MODULES_STAGE/lib"
-
-  make -C "$KERN_SRC" O="$KERN_OUT" ARCH=arm64 INSTALL_MOD_PATH="$MODULES_RAW_STAGE" modules_install
-  mv "$MODULES_RAW_STAGE/lib/modules" "$MODULES_STAGE/lib/"
-  rm -rf "$MODULES_RAW_STAGE"
-  rm -f "$MODULES_STAGE/lib/modules/$KREL/build" \
-        "$MODULES_STAGE/lib/modules/$KREL/source"
-  depmod -b "$MODULES_STAGE" -a "$KREL"
-}
-
-prepare_headers_package() {
-  rm -rf "$HEADERS_STAGE"
-  mkdir -p "$HEADERS_TREE" "$HEADERS_STAGE/lib/modules/$KREL"
-
-  rsync -a --delete --exclude '.git' "$KERN_SRC/" "$HEADERS_TREE/"
-  rsync -a "$KERN_OUT/" "$HEADERS_TREE/"
-
-  find "$HEADERS_TREE" -type f \
-    \( -name '*.o' -o -name '*.ko' -o -name '*.a' -o -name '*.cmd' -o -name '*.mod' -o -name '*.mod.c' \) \
-    -delete
-  find "$HEADERS_TREE" -type l \( -name build -o -name source \) -delete
-
-  ln -s "../../../src/linux-headers-$KREL" "$HEADERS_STAGE/lib/modules/$KREL/build"
-  ln -s "../../../src/linux-headers-$KREL" "$HEADERS_STAGE/lib/modules/$KREL/source"
-}
-
-prepare_firmware_package() {
-  rm -rf "$FIRMWARE_STAGE"
-  mkdir -p "$FIRMWARE_STAGE/lib/firmware"
-  cp -a "$GAOKUN_DIR/firmware/." "$FIRMWARE_STAGE/lib/firmware/"
-  rm -f "$FIRMWARE_STAGE/lib/firmware/"*.spec.in
-}
-
-# ---------------------------------------------------------------------------
-# Build a simple .deb from a staged directory tree
-# ---------------------------------------------------------------------------
 
 build_deb() {
   local pkg_name="$1"
   local stage_dir="$2"
-  local description="$3"
-  local depends="${4:-}"
-  local arch="${5:-$DEB_ARCH}"
-  local postinst="${6:-}"
+  local version="$3"
+  local description="$4"
+  local depends="${5:-}"
+  local arch="${6:-$DEB_ARCH}"
+  local postinst="${7:-}"
 
   local deb_dir="$stage_dir/DEBIAN"
   mkdir -p "$deb_dir"
 
   cat > "$deb_dir/control" <<EOF
 Package: ${pkg_name}
-Version: ${DEB_VERSION}
+Version: ${version}
 Architecture: ${arch}
 Maintainer: cool <bilibili@att.net>
 Description: ${description}
@@ -116,65 +63,157 @@ POSTEOF
     chmod 755 "$deb_dir/postinst"
   fi
 
-  dpkg-deb --build --root-owner-group "$stage_dir" "$DEB_TOPDIR/${pkg_name}_${DEB_VERSION}_${arch}.deb"
+  dpkg-deb --build --root-owner-group "$stage_dir" "$DEB_TOPDIR/${pkg_name}_${version}_${arch}.deb"
 }
 
-# ---------------------------------------------------------------------------
-# Stage all packages
-# ---------------------------------------------------------------------------
+build_kernel_variant() {
+  local variant_key="$1"
+  local pkg_suffix="$2"
+  local src_dir="$3"
+  local out_dir="$4"
+  local krel="$5"
+  local dtb_name="$6"
 
-prepare_image_package
-prepare_modules_package
-prepare_headers_package
-prepare_firmware_package
+  local deb_version="${krel//-/\~}-1"
+  local image_pkg="linux-image-gaokun3${pkg_suffix}"
+  local modules_pkg="linux-modules-gaokun3${pkg_suffix}"
+  local headers_pkg="linux-headers-gaokun3${pkg_suffix}"
+  local image_stage="$BUILDROOT_DIR/${image_pkg}"
+  local modules_stage="$BUILDROOT_DIR/${modules_pkg}"
+  local modules_raw_stage="$BUILDROOT_DIR/${modules_pkg}-raw"
+  local headers_stage="$BUILDROOT_DIR/${headers_pkg}"
+  local headers_tree="$headers_stage/usr/src/linux-headers-$krel"
 
-# ---------------------------------------------------------------------------
-# Build DEBs
-# ---------------------------------------------------------------------------
+  rm -rf "$image_stage" "$modules_stage" "$modules_raw_stage" "$headers_stage"
+  mkdir -p "$image_stage/boot" "$image_stage/usr/lib/linux-image-$krel/qcom"
+  mkdir -p "$modules_stage/lib" "$headers_tree" "$headers_stage/lib/modules/$krel"
 
-build_deb "linux-image-gaokun3" "$IMAGE_STAGE" \
-  "Linux kernel image for gaokun3 ($KREL)" \
-  "" "$DEB_ARCH" \
-  "update-initramfs -c -k $KREL 2>/dev/null || true"
+  install -Dm644 "$out_dir/arch/arm64/boot/Image" \
+    "$image_stage/boot/vmlinuz-$krel"
+  install -Dm644 "$out_dir/System.map" \
+    "$image_stage/boot/System.map-$krel"
+  install -Dm644 "$out_dir/.config" \
+    "$image_stage/boot/config-$krel"
+  install -Dm644 "$out_dir/arch/arm64/boot/dts/qcom/$dtb_name" \
+    "$image_stage/usr/lib/linux-image-$krel/qcom/$dtb_name"
 
-build_deb "linux-modules-gaokun3" "$MODULES_STAGE" \
-  "Linux kernel modules for gaokun3 ($KREL)" \
-  "linux-image-gaokun3 (= $DEB_VERSION)" "$DEB_ARCH" \
-  "depmod -a $KREL 2>/dev/null || true"
+  make -C "$src_dir" O="$out_dir" ARCH=arm64 INSTALL_MOD_PATH="$modules_raw_stage" modules_install
+  mv "$modules_raw_stage/lib/modules" "$modules_stage/lib/"
+  rm -rf "$modules_raw_stage"
+  rm -f "$modules_stage/lib/modules/$krel/build" \
+        "$modules_stage/lib/modules/$krel/source"
+  depmod -b "$modules_stage" -a "$krel"
 
-build_deb "linux-headers-gaokun3" "$HEADERS_STAGE" \
-  "Linux kernel headers for gaokun3 ($KREL)" \
-  "linux-modules-gaokun3 (= $DEB_VERSION)" "$DEB_ARCH"
+  rsync -a --delete --exclude '.git' "$src_dir/" "$headers_tree/"
+  rsync -a "$out_dir/" "$headers_tree/"
+  find "$headers_tree" -type f \
+    \( -name '*.o' -o -name '*.ko' -o -name '*.a' -o -name '*.cmd' -o -name '*.mod' -o -name '*.mod.c' \) \
+    -delete
+  find "$headers_tree" -type l \( -name build -o -name source \) -delete
+  ln -s "../../../src/linux-headers-$krel" "$headers_stage/lib/modules/$krel/build"
+  ln -s "../../../src/linux-headers-$krel" "$headers_stage/lib/modules/$krel/source"
 
-build_deb "linux-firmware-gaokun3" "$FIRMWARE_STAGE" \
-  "Firmware bundle for Huawei MateBook E Go 2023 (gaokun3)" \
-  "" "all"
+  build_deb "$image_pkg" "$image_stage" "$deb_version" \
+    "Linux kernel image for gaokun3 (${krel})" \
+    "" "$DEB_ARCH" \
+    "update-initramfs -c -k $krel 2>/dev/null || true"
 
-# ---------------------------------------------------------------------------
-# Collect artifacts
-# ---------------------------------------------------------------------------
+  build_deb "$modules_pkg" "$modules_stage" "$deb_version" \
+    "Linux kernel modules for gaokun3 (${krel})" \
+    "${image_pkg} (= $deb_version)" "$DEB_ARCH" \
+    "depmod -a $krel 2>/dev/null || true"
 
-image_deb="linux-image-gaokun3_${DEB_VERSION}_${DEB_ARCH}.deb"
-modules_deb="linux-modules-gaokun3_${DEB_VERSION}_${DEB_ARCH}.deb"
-headers_deb="linux-headers-gaokun3_${DEB_VERSION}_${DEB_ARCH}.deb"
-firmware_deb="linux-firmware-gaokun3_${DEB_VERSION}_all.deb"
+  build_deb "$headers_pkg" "$headers_stage" "$deb_version" \
+    "Linux kernel headers for gaokun3 (${krel})" \
+    "${modules_pkg} (= $deb_version)" "$DEB_ARCH"
 
-cp "$DEB_TOPDIR/$image_deb" "$ARTIFACT_DIR/"
-cp "$DEB_TOPDIR/$modules_deb" "$ARTIFACT_DIR/"
-cp "$DEB_TOPDIR/$headers_deb" "$ARTIFACT_DIR/"
-cp "$DEB_TOPDIR/$firmware_deb" "$ARTIFACT_DIR/"
+  local image_deb="${image_pkg}_${deb_version}_${DEB_ARCH}.deb"
+  local modules_deb="${modules_pkg}_${deb_version}_${DEB_ARCH}.deb"
+  local headers_deb="${headers_pkg}_${deb_version}_${DEB_ARCH}.deb"
+
+  cp "$DEB_TOPDIR/$image_deb" "$ARTIFACT_DIR/"
+  cp "$DEB_TOPDIR/$modules_deb" "$ARTIFACT_DIR/"
+  cp "$DEB_TOPDIR/$headers_deb" "$ARTIFACT_DIR/"
+
+  printf -v "KREL_${variant_key^^}" '%s' "$krel"
+  printf -v "IMAGE_DEB_${variant_key^^}" '%s' "$image_deb"
+  printf -v "MODULES_DEB_${variant_key^^}" '%s' "$modules_deb"
+  printf -v "HEADERS_DEB_${variant_key^^}" '%s' "$headers_deb"
+}
+
+build_firmware_package() {
+  local firmware_stage="$BUILDROOT_DIR/linux-firmware-gaokun3"
+  local firmware_deb="linux-firmware-gaokun3_${FIRMWARE_DEB_VERSION}_all.deb"
+
+  rm -rf "$firmware_stage"
+  mkdir -p "$firmware_stage/lib/firmware"
+  cp -a "$GAOKUN_DIR/firmware/." "$firmware_stage/lib/firmware/"
+  rm -f "$firmware_stage/lib/firmware/"*.spec.in
+
+  build_deb "linux-firmware-gaokun3" "$firmware_stage" "$FIRMWARE_DEB_VERSION" \
+    "Firmware bundle for Huawei MateBook E Go 2023 (gaokun3)" "" "all"
+
+  cp "$DEB_TOPDIR/$firmware_deb" "$ARTIFACT_DIR/"
+  FIRMWARE_DEB="$firmware_deb"
+}
+
+build_kernel_variant "standard" "" "$KERN_SRC_BASE" "$KERN_OUT_BASE" "$BASE_KREL" \
+  "sc8280xp-huawei-gaokun3.dtb"
+
+if [[ "$BUILD_EL2" == "true" ]]; then
+  if [[ -z "$EL2_KREL" ]]; then
+    echo "BUILD_EL2=true but kernel-release-el2.txt is missing" >&2
+    exit 1
+  fi
+
+  build_kernel_variant "el2" "-el2" "$KERN_SRC_EL2" "$KERN_OUT_EL2" "$EL2_KREL" \
+    "sc8280xp-huawei-gaokun3-el2.dtb"
+fi
+
+build_firmware_package
+
+EL2_MANIFEST_BLOCK=""
+EL2_RELEASE_BLOCK=""
+if [[ "$BUILD_EL2" == "true" ]]; then
+  EL2_MANIFEST_BLOCK="$(cat <<EOF
+,
+    "el2": {
+      "release": "${KREL_EL2}",
+      "packages": {
+        "image": "${IMAGE_DEB_EL2}",
+        "modules": "${MODULES_DEB_EL2}",
+        "headers": "${HEADERS_DEB_EL2}"
+      }
+    }
+EOF
+)"
+  EL2_RELEASE_BLOCK="$(cat <<EOF
+- \`${IMAGE_DEB_EL2}\`
+- \`${MODULES_DEB_EL2}\`
+- \`${HEADERS_DEB_EL2}\`
+EOF
+)"
+fi
 
 cat >"$ARTIFACT_DIR/package-manifest.json" <<EOF
 {
   "package_release_tag": "${PACKAGE_RELEASE_TAG}",
   "kernel_tag": "${KERNEL_TAG}",
-  "kernel_release": "${KREL}",
-  "built_at_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "build_el2": ${BUILD_EL2},
+  "built_at_utc": "${BUILD_TIME_UTC}",
+  "firmware_version": "${FIRMWARE_DEB_VERSION}",
+  "kernels": {
+    "standard": {
+      "release": "${KREL_STANDARD}",
+      "packages": {
+        "image": "${IMAGE_DEB_STANDARD}",
+        "modules": "${MODULES_DEB_STANDARD}",
+        "headers": "${HEADERS_DEB_STANDARD}"
+      }
+    }${EL2_MANIFEST_BLOCK}
+  },
   "packages": {
-    "image": "${image_deb}",
-    "modules": "${modules_deb}",
-    "headers": "${headers_deb}",
-    "firmware": "${firmware_deb}"
+    "firmware": "${FIRMWARE_DEB}"
   }
 }
 EOF
@@ -184,14 +223,15 @@ cat >"$ARTIFACT_DIR/package-release-body.md" <<EOF
 
 - Package Tag: \`${PACKAGE_RELEASE_TAG}\`
 - Kernel Tag: \`${KERNEL_TAG}\`
-- Kernel Release: \`${KREL}\`
+- EL2 Package Set Included: \`${BUILD_EL2}\`
+- Firmware Version: \`${FIRMWARE_DEB_VERSION}\`
 - Architecture: \`${DEB_ARCH}\`
-- Build Time (UTC): \`$(date -u +"%Y-%m-%dT%H:%M:%SZ")\`
+- Build Time (UTC): \`${BUILD_TIME_UTC}\`
 
 ## Included DEBs
 
-- \`${image_deb}\`
-- \`${modules_deb}\`
-- \`${headers_deb}\`
-- \`${firmware_deb}\`
+- \`${IMAGE_DEB_STANDARD}\`
+- \`${MODULES_DEB_STANDARD}\`
+- \`${HEADERS_DEB_STANDARD}\`
+${EL2_RELEASE_BLOCK}- \`${FIRMWARE_DEB}\`
 EOF

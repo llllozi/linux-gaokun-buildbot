@@ -19,16 +19,21 @@
 
 EFI 侧至少需要以下文件：
 
-- `BOOTAA64.EFI`：自定义包装器
+- `BOOTAA64.EFI`
 - `slbounceaa64.efi`
 - `tcblaunch.exe`
 - `qebspilaa64.efi`
-- `SimpleInit-AARCH64.efi`（或其他自定义下一级引导器）
 - `/firmware/...` 下的 DSP 固件文件
+
+其中：
+
+- `BOOTAA64.EFI` 现在是 `systemd-boot`
+- `slbounceaa64.efi` 和 `qebspilaa64.efi` 需要放到 `\EFI\systemd\drivers\`
 
 内核侧至少需要：
 
 - EL2 DTB：`sc8280xp-huawei-gaokun3-el2.dtb`
+- EL2 内核：`CONFIG_LOCALVERSION="-gaokun3-el2"`
 - `CONFIG_VIRTUALIZATION=y`
 - `CONFIG_KVM=y`
 - `CONFIG_REMOTEPROC=y`
@@ -40,49 +45,25 @@ EFI 侧至少需要以下文件：
 建议将启动链调整为如下顺序：
 
 1. `\EFI\BOOT\BOOTAA64.EFI`
-2. `\slbounceaa64.efi`
-3. `\qebspilaa64.efi`
-4. `\EFI\BOOT\SimpleInit-AARCH64.efi`
-5. Simple Init -> GRUB -> EL2 菜单项
+2. `\EFI\systemd\drivers\slbounceaa64.efi`
+3. `\EFI\systemd\drivers\qebspilaa64.efi`
+4. `systemd-boot` -> EL2 菜单项
 
 说明：
 
 - `slbounce` 仍负责 Secure Launch 及 EL2 切换。
 - `qebspil` 负责在退出 UEFI 前预启动 DSP。
-- GRUB 菜单项须显式指定 `-el2.dtb`。
+- `systemd-boot` 的 EL2 菜单项须显式指定 `-gaokun3-el2` 内核和 `-el2.dtb`。
 
 ## 5. 编译说明
 
-当前可直接使用仓库内 `tools/el2` 中的包装器及必要引导组件，主要文件如下：
+当前可直接使用仓库内 `tools/el2` 中的必要引导组件，主要文件如下：
 
-- `loader_main.c`：包装器链式启动逻辑（当前为 slbounce → Simple Init，可按需修改）。
-- `Makefile`：AArch64 GNU-EFI 交叉编译脚本。
-- `gnu-efi/`：编译所需头文件与库。
 - `slbounceaa64.efi`：slbounce 驱动文件。
 - `tcblaunch.exe`：已验证版本的 TCB 文件。
-- `bootaa64.efi`：包装器编译产物。
 - `qebspilaa64.efi`：qebspil 编译产物。
 
-如需自行编译，可参考以下步骤。
-
-### 5.1 编译 BOOTAA64.EFI 包装器
-
-```bash
-sudo apt-get update
-sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-
-cd /workspaces/linux-gaokun-build/tools/el2
-make clean
-make
-```
-
-产物：
-
-- `tools/el2/bootaa64.efi`
-
-部署到 EFI 分区 `\EFI\BOOT\BOOTAA64.EFI`，作为新的默认引导程序。
-
-### 5.2 编译 slbounce
+### 5.1 编译 slbounce
 
 ```bash
 git clone --recursive https://github.com/TravMurav/slbounce.git
@@ -94,9 +75,9 @@ make CROSS_COMPILE=aarch64-linux-gnu-
 
 - `out/slbounce.efi`
 
-重命名为 `slbounceaa64.efi` 后部署至 EFI 分区根目录。
+重命名为 `slbounceaa64.efi` 后部署至 `\EFI\systemd\drivers\`。
 
-### 5.3 编译 qebspil
+### 5.2 编译 qebspil
 
 ```bash
 git clone --recursive https://github.com/stephan-gh/qebspil.git
@@ -108,7 +89,7 @@ make CROSS_COMPILE=aarch64-linux-gnu-
 
 - `out/qebspilaa64.efi`
 
-部署至 EFI 分区根目录。
+部署至 `\EFI\systemd\drivers\`。
 
 如需强制启动所有 remoteproc（而非仅限带有 `qcom,broken-reset` 标记的节点）：
 
@@ -173,31 +154,27 @@ find /sys/firmware/devicetree -name firmware-name -exec cat {} + | xargs -0n1
 建议备份原有文件后再行替换：
 
 1. 备份 `\EFI\BOOT\BOOTAA64.EFI`
-2. 将其替换为 `tools/el2/bootaa64.efi`
+2. 在 `\EFI\systemd\drivers\` 放置：
+   - `slbounceaa64.efi`
+   - `qebspilaa64.efi`
 3. 在 EFI 分区根目录放置：
-   - `\slbounceaa64.efi`
    - `\tcblaunch.exe`
-   - `\qebspilaa64.efi`
-4. 在 EFI 分区放置：
-   - `\EFI\BOOT\SimpleInit-AARCH64.efi`
-5. 在 EFI 分区顶层放置：
+4. 在 EFI 分区顶层放置：
    - `\firmware\...`
-6. 通过 Simple Init 跳转至发行版 GRUB
-7. 在 GRUB 中选择 EL2 菜单项
+5. 通过 `systemd-boot` 选择 EL2 菜单项
 
 建议的目录结构如下：
 
 ```text
 /boot/efi
 ├── EFI
-│   ├── Boot
-│   │   ├── BOOTAA64.EFI
-│   │   ├── ...
-│   │   └── SimpleInit-AARCH64.efi
-│   ├── ubuntu
-│   │   ├── grubaa64.efi
-│   │   └── grub.cfg
-│   └── ...
+│   ├── BOOT
+│   │   └── BOOTAA64.EFI
+│   └── systemd
+│       ├── systemd-bootaa64.efi
+│       └── drivers
+│           ├── qebspilaa64.efi
+│           └── slbounceaa64.efi
 ├── firmware
 │   └── qcom
 │       └── sc8280xp
@@ -206,9 +183,13 @@ find /sys/firmware/devicetree -name firmware-name -exec cat {} + | xargs -0n1
 │                   ├── qcadsp8280.mbn
 │                   ├── qccdsp8280.mbn
 │                   └── qcslpi8280.mbn
-├── qebspilaa64.efi
-├── slbounceaa64.efi
-└── tcblaunch.exe
+├── tcblaunch.exe
+├── loader
+│   ├── entries
+│   │   └── *.conf
+│   └── loader.conf
+└── gaokun3
+    └── ...
 ```
 
 ## 9. 启动后验证
@@ -234,18 +215,19 @@ ls /sys/class/remoteproc/
 1. 确认是否已部署 `qebspilaa64.efi`
 2. 确认 ESP 顶层 `/firmware/...` 目录是否存在，且文件名与设备树中的 `firmware-name` 属性一致
 3. 确认 EL2 菜单项是否已加载 `-el2.dtb`
-4. 确认内核是否包含 qebspil 对应的 remoteproc/PAS 补丁
-5. 检查 `dmesg` 中是否出现 ADSP/CDSP handover、PAS、IOMMU 或 resource table 相关错误
-6. 若 remoteproc 节点未带有 `qcom,broken-reset` 属性，可考虑重新编译并启用 `QEBSPIL_ALWAYS_START=1`
+4. 确认 EL2 菜单项是否使用了 `-gaokun3-el2` 内核
+5. 确认内核是否包含 qebspil 对应的 remoteproc/PAS 补丁
+6. 检查 `dmesg` 中是否出现 ADSP/CDSP handover、PAS、IOMMU 或 resource table 相关错误
+7. 若 remoteproc 节点未带有 `qcom,broken-reset` 属性，可考虑重新编译并启用 `QEBSPIL_ALWAYS_START=1`
 
 ## 11. 最小操作建议
 
 若当前目标仅为恢复音频功能，最小操作步骤如下：
 
-1. 保留现有 `slbounce` 启动链路
-2. 新增 `qebspilaa64.efi`
-3. 补全 ESP 上的 `/firmware/...` 目录
-4. 合入 qebspil README 所指向的 handover/PAS 补丁后重新编译内核
+1. 新增 `qebspilaa64.efi`
+2. 补全 ESP 上的 `/firmware/...` 目录
+3. 合入 qebspil README 所指向的 handover/PAS 补丁后重新编译 EL2 内核
+4. 确认 EL2 菜单项使用 `-gaokun3-el2` 内核和 `-el2.dtb`
 5. 验证 ADSP/CDSP/SLPI 的启动情况
 
 在完成上述步骤之前，不建议将精力继续集中于 ALSA 或声卡驱动层面的排查。

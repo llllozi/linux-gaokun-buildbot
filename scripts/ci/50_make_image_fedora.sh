@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+: "${GAOKUN_DIR:?missing GAOKUN_DIR}"
 : "${WORKDIR:?missing WORKDIR}"
 : "${ROOTFS_DIR:?missing ROOTFS_DIR}"
 : "${ARTIFACT_DIR:?missing ARTIFACT_DIR}"
 : "${IMAGE_FILE:?missing IMAGE_FILE}"
 : "${IMAGE_SIZE:?missing IMAGE_SIZE}"
+: "${FEDORA_RELEASE:?missing FEDORA_RELEASE}"
 
+BUILD_EL2="${BUILD_EL2:-false}"
 KREL="$(cat "$WORKDIR/kernel-release.txt")"
+KREL_EL2=""
+if [[ "$BUILD_EL2" == "true" && -f "$WORKDIR/kernel-release-el2.txt" ]]; then
+  KREL_EL2="$(cat "$WORKDIR/kernel-release-el2.txt")"
+fi
 
+EFI_END_MIB=1025
 truncate -s "$IMAGE_SIZE" "$IMAGE_FILE"
 parted -s "$IMAGE_FILE" mklabel gpt
-parted -s "$IMAGE_FILE" mkpart EFI fat32 1MiB 256MiB
+parted -s "$IMAGE_FILE" mkpart EFI fat32 1MiB "${EFI_END_MIB}MiB"
 parted -s "$IMAGE_FILE" set 1 esp on
-parted -s "$IMAGE_FILE" mkpart rootfs btrfs 256MiB 100%
+parted -s "$IMAGE_FILE" mkpart rootfs btrfs "${EFI_END_MIB}MiB" 100%
 
 LOOP="$(sudo losetup --show -fP "$IMAGE_FILE")"
 sudo mkfs.vfat -F32 -n EFI "${LOOP}p1"
@@ -67,7 +75,7 @@ sudo mount -t proc proc "$MNT/proc"
 sudo mount -t sysfs sys "$MNT/sys"
 sudo mount -t tmpfs tmpfs "$MNT/run"
 
-sudo chroot "$MNT" /usr/bin/env KREL="$KREL" /bin/bash -euxo pipefail <<'CHROOT_EOF'
+sudo chroot "$MNT" /usr/bin/env KREL="$KREL" KREL_EL2="$KREL_EL2" BUILD_EL2="$BUILD_EL2" /bin/bash -euxo pipefail <<'CHROOT_EOF'
 echo "fedora" > /etc/hostname
 id -u user >/dev/null 2>&1 || useradd -m -s /bin/bash -G wheel user
 echo "user:user" | chpasswd
@@ -79,7 +87,6 @@ LANG=zh_CN.UTF-8
 LC_MESSAGES=zh_CN.UTF-8
 EOF
 
-# Make both the login user and GDM greeter inherit the image locale by default.
 mkdir -p /var/lib/AccountsService/users
 cat > /var/lib/AccountsService/users/user <<'EOF'
 [User]
@@ -137,63 +144,81 @@ echo -e "huawei-gaokun-ec\nhuawei-gaokun-battery\nucsi_huawei_gaokun" > /etc/mod
 mkdir -p /etc/modprobe.d
 echo "softdep pinctrl_sc8280xp_lpass_lpi pre: lpasscc_sc8280xp" > /etc/modprobe.d/audio-deps.conf
 
-cat > /etc/dracut.conf.d/matebook.conf <<MODEOF
+cat > /etc/dracut.conf.d/matebook.conf <<'MODEOF'
 hostonly="no"
-add_drivers+=" btrfs nvme phy-qcom-qmp-pcie phy-qcom-qmp-combo phy-qcom-qmp-usb phy-qcom-snps-femto-v2 usb-storage uas typec pci-pwrctrl-pwrseq ath11k ath11k_pci i2c-hid-of lpasscc_sc8280xp snd-soc-sc8280xp pinctrl_sc8280xp_lpass_lpi "
-install_items+=" /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcslpi8280.mbn /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcadsp8280.mbn /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qccdsp8280.mbn /lib/firmware/qcom/sc8280xp/SC8280XP-HUAWEI-GAOKUN3-tplg.bin /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/audioreach-tplg.bin "
+add_drivers+=" btrfs nvme phy-qcom-qmp-pcie phy-qcom-qmp-combo phy-qcom-qmp-usb phy-qcom-snps-femto-v2 usb-storage uas typec pci-pwrctrl-pwrseq ath11k ath11k_pci i2c-hid-of "
 MODEOF
 
 dracut --force --kver "$KREL"
-
-cat > /etc/default/grub <<GRUBEOF
-GRUB_DEFAULT=saved
-GRUB_TIMEOUT=5
-GRUB_DISTRIBUTOR="Fedora"
-GRUB_ENABLE_BLSCFG=false
-GRUB_CMDLINE_LINUX="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
-GRUB_DEFAULT_DTB="qcom/sc8280xp-huawei-gaokun3.dtb"
-GRUBEOF
-
-ROOT_UUID="$(blkid -s UUID -o value /dev/disk/by-label/rootfs)"
-
-echo 'GRUB_DISABLE_OS_PROBER=true' >> /etc/default/grub
-
-cat > /etc/grub.d/11_gaokun_el2 <<SCRIPTEOF
-#!/bin/sh
-exec tail -n +3 \$0
-
-menuentry 'Fedora ${KREL} (EL2 Hypervisor)' --class fedora --class gnu-linux --class gnu --class os {
-        search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-        linux /boot/vmlinuz-${KREL} root=UUID=${ROOT_UUID} rootflags=subvol=@ clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1
-        initrd /boot/initramfs-${KREL}.img
-    devicetree /boot/dtb-${KREL}/qcom/sc8280xp-huawei-gaokun3-el2.dtb
-}
-SCRIPTEOF
-chmod +x /etc/grub.d/11_gaokun_el2
-
-grub2-install --target=arm64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --force
-grub2-mkconfig -o /boot/grub2/grub.cfg
-sed -i 's/^GRUB_DISABLE_OS_PROBER=true$/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
-
-mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/fedora
-cat > /boot/efi/EFI/BOOT/grub.cfg <<EOF
-search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-if [ -f (\$root)/@/boot/grub2/grub.cfg ]; then
-    set prefix=(\$root)/@/boot/grub2
-    configfile (\$root)/@/boot/grub2/grub.cfg
-elif [ -f (\$root)/boot/grub2/grub.cfg ]; then
-    set prefix=(\$root)/boot/grub2
-    configfile (\$root)/boot/grub2/grub.cfg
-else
-    echo "ERROR: grub.cfg not found on rootfs UUID ${ROOT_UUID}"
-    echo "Tried: /@/boot/grub2/grub.cfg and /boot/grub2/grub.cfg"
-    sleep 5
+if [[ "$BUILD_EL2" == "true" && -n "$KREL_EL2" ]]; then
+  dracut --force --kver "$KREL_EL2"
 fi
-EOF
-cp /boot/efi/EFI/BOOT/grub.cfg /boot/efi/EFI/fedora/grub.cfg
 
-grep -n "devicetree" /boot/grub2/grub.cfg
+bootctl --esp-path=/boot/efi install
 CHROOT_EOF
+
+MACHINE_ID="$(sudo cat "$MNT/etc/machine-id")"
+ENTRY_DIR="$MNT/boot/efi/loader/entries"
+ESP_OS_DIR="$MNT/boot/efi/gaokun3/fedora"
+BASE_ENTRY_FILE="${MACHINE_ID}-fedora-gaokun3-${KREL}.conf"
+BASE_CMDLINE="root=UUID=${ROOT_UUID} rootflags=subvol=@ clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
+EL2_CMDLINE="root=UUID=${ROOT_UUID} rootflags=subvol=@ clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
+
+sudo mkdir -p "$ENTRY_DIR" "$ESP_OS_DIR/$KREL"
+sudo install -Dm644 "$MNT/boot/vmlinuz-$KREL" "$ESP_OS_DIR/$KREL/linux"
+sudo install -Dm644 "$MNT/boot/initramfs-$KREL.img" "$ESP_OS_DIR/$KREL/initrd"
+sudo install -Dm644 \
+  "$MNT/boot/dtb-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb" \
+  "$ESP_OS_DIR/$KREL/sc8280xp-huawei-gaokun3.dtb"
+
+sudo tee "$MNT/boot/efi/loader/loader.conf" >/dev/null <<EOF
+default ${BASE_ENTRY_FILE}
+timeout 5
+console-mode keep
+editor no
+EOF
+
+sudo tee "$ENTRY_DIR/$BASE_ENTRY_FILE" >/dev/null <<EOF
+title Fedora Linux ${FEDORA_RELEASE}
+version ${KREL}
+machine-id ${MACHINE_ID}
+sort-key gaokun3
+architecture AA64
+linux /gaokun3/fedora/${KREL}/linux
+initrd /gaokun3/fedora/${KREL}/initrd
+devicetree /gaokun3/fedora/${KREL}/sc8280xp-huawei-gaokun3.dtb
+options ${BASE_CMDLINE}
+EOF
+
+if [[ "$BUILD_EL2" == "true" && -n "$KREL_EL2" ]]; then
+  EL2_ENTRY_FILE="${MACHINE_ID}-fedora-gaokun3-${KREL_EL2}.conf"
+
+  sudo mkdir -p "$ESP_OS_DIR/$KREL_EL2" "$MNT/boot/efi/EFI/systemd/drivers" "$MNT/boot/efi/firmware"
+  sudo install -Dm644 "$MNT/boot/vmlinuz-$KREL_EL2" "$ESP_OS_DIR/$KREL_EL2/linux"
+  sudo install -Dm644 "$MNT/boot/initramfs-$KREL_EL2.img" "$ESP_OS_DIR/$KREL_EL2/initrd"
+  sudo install -Dm644 \
+    "$MNT/boot/dtb-$KREL_EL2/qcom/sc8280xp-huawei-gaokun3-el2.dtb" \
+    "$ESP_OS_DIR/$KREL_EL2/sc8280xp-huawei-gaokun3-el2.dtb"
+  sudo install -Dm644 "$GAOKUN_DIR/tools/el2/slbounceaa64.efi" \
+    "$MNT/boot/efi/EFI/systemd/drivers/slbounceaa64.efi"
+  sudo install -Dm644 "$GAOKUN_DIR/tools/el2/qebspilaa64.efi" \
+    "$MNT/boot/efi/EFI/systemd/drivers/qebspilaa64.efi"
+  sudo install -Dm644 "$GAOKUN_DIR/tools/el2/tcblaunch.exe" \
+    "$MNT/boot/efi/tcblaunch.exe"
+  sudo rsync -a "$MNT/lib/firmware/qcom/" "$MNT/boot/efi/firmware/qcom/"
+
+  sudo tee "$ENTRY_DIR/$EL2_ENTRY_FILE" >/dev/null <<EOF
+title Fedora Linux ${FEDORA_RELEASE} (EL2 Hypervisor)
+version ${KREL_EL2}
+machine-id ${MACHINE_ID}
+sort-key gaokun3-el2
+architecture AA64
+linux /gaokun3/fedora/${KREL_EL2}/linux
+initrd /gaokun3/fedora/${KREL_EL2}/initrd
+devicetree /gaokun3/fedora/${KREL_EL2}/sc8280xp-huawei-gaokun3-el2.dtb
+options ${EL2_CMDLINE}
+EOF
+fi
 
 sync
 

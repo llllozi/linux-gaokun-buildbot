@@ -11,10 +11,29 @@ set -euo pipefail
 : "${EXTRA_PACKAGES:?missing EXTRA_PACKAGES}"
 
 KREL="$(cat "$WORKDIR/kernel-release.txt")"
+BUILD_EL2="${BUILD_EL2:-false}"
+EL2_KREL=""
+if [[ "$BUILD_EL2" == "true" && -f "$WORKDIR/kernel-release-el2.txt" ]]; then
+  EL2_KREL="$(cat "$WORKDIR/kernel-release-el2.txt")"
+fi
 IMAGE_BASENAME="$(basename "$IMAGE_FILE")"
 ZST_FILE="$ARTIFACT_DIR/${IMAGE_BASENAME}.zst"
 RELEASE_BODY_FILE="$ARTIFACT_DIR/release-body.md"
 SPLIT_THRESHOLD_BYTES=$((2 * 1024 * 1024 * 1024))
+EL2_RELEASE_BLOCK=""
+EL2_LOGIN_BLOCK=""
+if [[ "$BUILD_EL2" == "true" && -n "$EL2_KREL" ]]; then
+  EL2_RELEASE_BLOCK="$(cat <<EOF
+- Optional EL2 Kernel Release: \`${EL2_KREL}\`
+EOF
+)"
+  EL2_LOGIN_BLOCK="## EL2 Payload
+
+- Includes systemd-boot EL2 menu entry
+- Includes \`slbounceaa64.efi\`, \`qebspilaa64.efi\`, \`tcblaunch.exe\`, and ESP \`/firmware/qcom\`
+
+"
+fi
 
 cp "$IMAGE_FILE" "$ARTIFACT_DIR/"
 zstd -T0 -19 "$ARTIFACT_DIR/$IMAGE_BASENAME" -o "$ZST_FILE"
@@ -28,8 +47,9 @@ if [ "$(stat -c '%s' "$ZST_FILE")" -lt "$SPLIT_THRESHOLD_BYTES" ]; then
 - Kernel Tag: \`${KERNEL_TAG}\`
 - Kernel Release: \`${KREL}\`
 - Architecture: \`arm64\`
+${EL2_RELEASE_BLOCK}
 - Root Filesystem: \`ext4\`
-- Bootloader: \`GRUB2 (update-grub)\`
+- Bootloader: \`systemd-boot\`
 - Image File: \`${IMAGE_BASENAME}\`
 - Compressed File: \`${IMAGE_BASENAME}.zst\`
 - Build Time (UTC): \`$(date -u +"%Y-%m-%dT%H:%M:%SZ")\`
@@ -43,6 +63,7 @@ if [ "$(stat -c '%s' "$ZST_FILE")" -lt "$SPLIT_THRESHOLD_BYTES" ]; then
 
 - Username: \`user\`
 - Password: \`user\`
+${EL2_LOGIN_BLOCK}
 EOF
 else
   split -b "$IMAGE_CHUNK_SIZE" -d -a 3 \
@@ -56,8 +77,9 @@ else
 - Kernel Tag: \`${KERNEL_TAG}\`
 - Kernel Release: \`${KREL}\`
 - Architecture: \`arm64\`
+${EL2_RELEASE_BLOCK}
 - Root Filesystem: \`ext4\`
-- Bootloader: \`GRUB2 (update-grub)\`
+- Bootloader: \`systemd-boot\`
 - Image File: \`${IMAGE_BASENAME}\`
 - Compressed File: \`${IMAGE_BASENAME}.zst\`
 - Build Time (UTC): \`$(date -u +"%Y-%m-%dT%H:%M:%SZ")\`
@@ -72,6 +94,8 @@ else
 - Username: \`user\`
 - Password: \`user\`
 
+${EL2_LOGIN_BLOCK}
+
 ## Reassemble And Decompress
 
 \`\`\`bash
@@ -83,7 +107,7 @@ fi
 
 sudo chown "$(id -u):$(id -g)" "$RELEASE_BODY_FILE"
 
-TAG_NAME="ubuntu${UBUNTU_RELEASE}-${KREL}-$(date -u +%Y%m%d%H%M%S)"
+TAG_NAME="ubuntu${UBUNTU_RELEASE}-${KREL}$(if [[ "$BUILD_EL2" == "true" ]]; then printf -- '-el2'; fi)-$(date -u +%Y%m%d%H%M%S)"
 
 echo "$TAG_NAME" > "$WORKDIR/tag-name.txt"
 echo "$KREL" > "$WORKDIR/kernel-release-export.txt"

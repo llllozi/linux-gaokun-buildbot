@@ -3,25 +3,32 @@ set -euo pipefail
 
 : "${GAOKUN_DIR:?missing GAOKUN_DIR}"
 : "${WORKDIR:?missing WORKDIR}"
-: "${KERN_SRC:?missing KERN_SRC}"
-: "${KERN_OUT:?missing KERN_OUT}"
 : "${ARTIFACT_DIR:?missing ARTIFACT_DIR}"
 : "${KERNEL_TAG:?missing KERNEL_TAG}"
 : "${PACKAGE_RELEASE_TAG:?missing PACKAGE_RELEASE_TAG}"
 
-KREL="$(cat "$WORKDIR/kernel-release.txt")"
+BUILD_EL2="${BUILD_EL2:-false}"
+KERN_SRC_BASE="${KERN_SRC_BASE:-${KERN_SRC:-}}"
+KERN_OUT_BASE="${KERN_OUT_BASE:-${KERN_OUT:-}}"
+KERN_SRC_EL2="${KERN_SRC_EL2:-$WORKDIR/mainline-linux-el2}"
+KERN_OUT_EL2="${KERN_OUT_EL2:-$WORKDIR/kernel-out-el2}"
+
+: "${KERN_SRC_BASE:?missing KERN_SRC_BASE}"
+: "${KERN_OUT_BASE:?missing KERN_OUT_BASE}"
+
+BASE_KREL="$(cat "$WORKDIR/kernel-release.txt")"
+EL2_KREL=""
+if [[ -f "$WORKDIR/kernel-release-el2.txt" ]]; then
+  EL2_KREL="$(cat "$WORKDIR/kernel-release-el2.txt")"
+fi
+
 RPM_TOPDIR="$WORKDIR/rpmbuild"
 BUILDROOT_DIR="$WORKDIR/package-buildroots"
-KERNEL_STAGE="$BUILDROOT_DIR/kernel-gaokun3"
-MODULES_STAGE="$BUILDROOT_DIR/kernel-modules-gaokun3"
-MODULES_RAW_STAGE="$BUILDROOT_DIR/kernel-modules-raw"
-DEVEL_STAGE="$BUILDROOT_DIR/kernel-devel-gaokun3"
-DEVEL_TREE="$DEVEL_STAGE/usr/src/kernels/$KREL"
-FIRMWARE_STAGE="$BUILDROOT_DIR/linux-firmware-gaokun3"
-KREL_VERSION="${KREL//-/_}"
 RPM_BUILD_JOBS="${RPM_BUILD_JOBS:-$(nproc)}"
 RPM_PAYLOAD_LEVEL="${RPM_PAYLOAD_LEVEL:-2}"
 RPM_PAYLOAD_MACRO="w${RPM_PAYLOAD_LEVEL}T${RPM_BUILD_JOBS}.xzdio"
+FIRMWARE_RPM_VERSION="${FIRMWARE_RPM_VERSION:-$(date -u +%Y%m%d)}"
+BUILD_TIME_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 mkdir -p \
   "$ARTIFACT_DIR" \
@@ -35,96 +42,156 @@ mkdir -p \
 prepare_tarball() {
   local tar_name="$1"
   local source_dir="$2"
-
   tar -C "$source_dir" -czf "$RPM_TOPDIR/SOURCES/$tar_name" .
 }
 
 render_spec_template() {
   local template_path="$1"
   local output_path="$2"
+  shift 2
 
-  sed \
-    -e "s|@KREL_VERSION@|$KREL_VERSION|g" \
-    -e "s|@KREL@|$KREL|g" \
-    "$template_path" >"$output_path"
+  local sed_args=()
+  while [[ $# -gt 0 ]]; do
+    sed_args+=(-e "s|$1|$2|g")
+    shift 2
+  done
+
+  sed "${sed_args[@]}" "$template_path" >"$output_path"
 }
 
-prepare_kernel_package() {
-  rm -rf "$KERNEL_STAGE"
-  mkdir -p "$KERNEL_STAGE/boot/dtb-$KREL/qcom"
+build_variant_rpms() {
+  local variant_key="$1"
+  local pkg_suffix="$2"
+  local src_dir="$3"
+  local out_dir="$4"
+  local krel="$5"
+  local dtb_name="$6"
 
-  install -Dm644 "$KERN_OUT/arch/arm64/boot/Image" \
-    "$KERNEL_STAGE/boot/vmlinuz-$KREL"
-  install -Dm644 "$KERN_OUT/System.map" \
-    "$KERNEL_STAGE/boot/System.map-$KREL"
-  install -Dm644 "$KERN_OUT/.config" \
-    "$KERNEL_STAGE/boot/config-$KREL"
-  install -Dm644 "$KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb" \
-    "$KERNEL_STAGE/boot/dtb-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb"
-  install -Dm644 "$KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-el2.dtb" \
-    "$KERNEL_STAGE/boot/dtb-$KREL/qcom/sc8280xp-huawei-gaokun3-el2.dtb"
-}
+  local kernel_pkg="kernel-gaokun3${pkg_suffix}"
+  local modules_pkg="kernel-modules-gaokun3${pkg_suffix}"
+  local devel_pkg="kernel-devel-gaokun3${pkg_suffix}"
+  local krel_version="${krel//-/_}"
+  local kernel_stage="$BUILDROOT_DIR/${kernel_pkg}"
+  local modules_stage="$BUILDROOT_DIR/${modules_pkg}"
+  local modules_raw_stage="$BUILDROOT_DIR/${modules_pkg}-raw"
+  local devel_stage="$BUILDROOT_DIR/${devel_pkg}"
+  local devel_tree="$devel_stage/usr/src/kernels/$krel"
+  local kernel_tar="${kernel_pkg}.tar.gz"
+  local modules_tar="${modules_pkg}.tar.gz"
+  local devel_tar="${devel_pkg}.tar.gz"
 
-prepare_modules_package() {
-  rm -rf "$MODULES_STAGE" "$MODULES_RAW_STAGE"
-  mkdir -p "$MODULES_STAGE/usr/lib" "$MODULES_STAGE/lib"
+  rm -rf "$kernel_stage" "$modules_stage" "$modules_raw_stage" "$devel_stage"
+  mkdir -p "$kernel_stage/boot/dtb-$krel/qcom" "$modules_stage/usr/lib" "$modules_stage/lib" \
+    "$devel_tree" "$devel_stage/usr/lib/modules/$krel"
 
-  make -C "$KERN_SRC" O="$KERN_OUT" ARCH=arm64 INSTALL_MOD_PATH="$MODULES_RAW_STAGE" modules_install
-  mv "$MODULES_RAW_STAGE/lib/modules" "$MODULES_STAGE/usr/lib/"
-  rm -rf "$MODULES_RAW_STAGE"
-  rm -f "$MODULES_STAGE/usr/lib/modules/$KREL/build" \
-        "$MODULES_STAGE/usr/lib/modules/$KREL/source"
-  ln -s ../usr/lib/modules "$MODULES_STAGE/lib/modules"
-  depmod -b "$MODULES_STAGE" -a "$KREL"
-  rm -f "$MODULES_STAGE/lib/modules"
-  rmdir "$MODULES_STAGE/lib"
-}
+  install -Dm644 "$out_dir/arch/arm64/boot/Image" \
+    "$kernel_stage/boot/vmlinuz-$krel"
+  install -Dm644 "$out_dir/System.map" \
+    "$kernel_stage/boot/System.map-$krel"
+  install -Dm644 "$out_dir/.config" \
+    "$kernel_stage/boot/config-$krel"
+  install -Dm644 "$out_dir/arch/arm64/boot/dts/qcom/$dtb_name" \
+    "$kernel_stage/boot/dtb-$krel/qcom/$dtb_name"
 
-prepare_kernel_devel_package() {
-  rm -rf "$DEVEL_STAGE"
-  mkdir -p "$DEVEL_TREE" "$DEVEL_STAGE/usr/lib/modules/$KREL"
+  make -C "$src_dir" O="$out_dir" ARCH=arm64 INSTALL_MOD_PATH="$modules_raw_stage" modules_install
+  mv "$modules_raw_stage/lib/modules" "$modules_stage/usr/lib/"
+  rm -rf "$modules_raw_stage"
+  rm -f "$modules_stage/usr/lib/modules/$krel/build" \
+        "$modules_stage/usr/lib/modules/$krel/source"
+  ln -s ../usr/lib/modules "$modules_stage/lib/modules"
+  depmod -b "$modules_stage" -a "$krel"
+  rm -f "$modules_stage/lib/modules"
+  rmdir "$modules_stage/lib"
 
-  rsync -a --delete --exclude '.git' "$KERN_SRC/" "$DEVEL_TREE/"
-  rsync -a "$KERN_OUT/" "$DEVEL_TREE/"
-
-  find "$DEVEL_TREE" -type f \
+  rsync -a --delete --exclude '.git' "$src_dir/" "$devel_tree/"
+  rsync -a "$out_dir/" "$devel_tree/"
+  find "$devel_tree" -type f \
     \( -name '*.o' -o -name '*.ko' -o -name '*.a' -o -name '*.cmd' -o -name '*.mod' -o -name '*.mod.c' \) \
     -delete
-  find "$DEVEL_TREE" -type l \( -name build -o -name source \) -delete
+  find "$devel_tree" -type l \( -name build -o -name source \) -delete
+  ln -s "../../../src/kernels/$krel" "$devel_stage/usr/lib/modules/$krel/build"
+  ln -s "../../../src/kernels/$krel" "$devel_stage/usr/lib/modules/$krel/source"
 
-  ln -s "../../../src/kernels/$KREL" "$DEVEL_STAGE/usr/lib/modules/$KREL/build"
-  ln -s "../../../src/kernels/$KREL" "$DEVEL_STAGE/usr/lib/modules/$KREL/source"
+  prepare_tarball "$kernel_tar" "$kernel_stage"
+  prepare_tarball "$modules_tar" "$modules_stage"
+  prepare_tarball "$devel_tar" "$devel_stage"
+
+  render_spec_template \
+    "$GAOKUN_DIR/packaging/kernel-gaokun3.spec.in" \
+    "$RPM_TOPDIR/SPECS/${kernel_pkg}.spec" \
+    "@PKG_NAME@" "$kernel_pkg" \
+    "@SOURCE_NAME@" "$kernel_tar" \
+    "@KREL_VERSION@" "$krel_version" \
+    "@KREL@" "$krel" \
+    "@DTB_FILE@" "$dtb_name"
+
+  render_spec_template \
+    "$GAOKUN_DIR/packaging/kernel-modules-gaokun3.spec.in" \
+    "$RPM_TOPDIR/SPECS/${modules_pkg}.spec" \
+    "@PKG_NAME@" "$modules_pkg" \
+    "@SOURCE_NAME@" "$modules_tar" \
+    "@KREL_VERSION@" "$krel_version" \
+    "@KREL@" "$krel" \
+    "@REQUIRES_KERNEL@" "$kernel_pkg"
+
+  render_spec_template \
+    "$GAOKUN_DIR/packaging/kernel-devel-gaokun3.spec.in" \
+    "$RPM_TOPDIR/SPECS/${devel_pkg}.spec" \
+    "@PKG_NAME@" "$devel_pkg" \
+    "@SOURCE_NAME@" "$devel_tar" \
+    "@KREL_VERSION@" "$krel_version" \
+    "@KREL@" "$krel" \
+    "@REQUIRES_MODULES@" "$modules_pkg"
+
+  rpmbuild "${rpmbuild_common_args[@]}" -bb "$RPM_TOPDIR/SPECS/${kernel_pkg}.spec"
+  rpmbuild "${rpmbuild_common_args[@]}" -bb "$RPM_TOPDIR/SPECS/${modules_pkg}.spec"
+  rpmbuild "${rpmbuild_common_args[@]}" -bb "$RPM_TOPDIR/SPECS/${devel_pkg}.spec"
+
+  local kernel_rpm_path
+  local modules_rpm_path
+  local devel_rpm_path
+  kernel_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name "${kernel_pkg}-*.rpm" -print -quit)"
+  modules_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name "${modules_pkg}-*.rpm" -print -quit)"
+  devel_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name "${devel_pkg}-*.rpm" -print -quit)"
+
+  local kernel_rpm_name="$(basename "$kernel_rpm_path")"
+  local modules_rpm_name="$(basename "$modules_rpm_path")"
+  local devel_rpm_name="$(basename "$devel_rpm_path")"
+
+  cp "$kernel_rpm_path" "$ARTIFACT_DIR/$kernel_rpm_name"
+  cp "$modules_rpm_path" "$ARTIFACT_DIR/$modules_rpm_name"
+  cp "$devel_rpm_path" "$ARTIFACT_DIR/$devel_rpm_name"
+
+  printf -v "KREL_${variant_key^^}" '%s' "$krel"
+  printf -v "KERNEL_RPM_${variant_key^^}" '%s' "$kernel_rpm_name"
+  printf -v "MODULES_RPM_${variant_key^^}" '%s' "$modules_rpm_name"
+  printf -v "DEVEL_RPM_${variant_key^^}" '%s' "$devel_rpm_name"
 }
 
-prepare_firmware_package() {
-  rm -rf "$FIRMWARE_STAGE"
-  mkdir -p "$FIRMWARE_STAGE/usr/lib/firmware"
-  cp -a "$GAOKUN_DIR/firmware/." "$FIRMWARE_STAGE/usr/lib/firmware/"
-  rm -f "$FIRMWARE_STAGE/usr/lib/firmware/"*.spec.in
+build_firmware_rpm() {
+  local firmware_stage="$BUILDROOT_DIR/linux-firmware-gaokun3"
+  local firmware_tar="linux-firmware-gaokun3.tar.gz"
+
+  rm -rf "$firmware_stage"
+  mkdir -p "$firmware_stage/usr/lib/firmware"
+  cp -a "$GAOKUN_DIR/firmware/." "$firmware_stage/usr/lib/firmware/"
+  rm -f "$firmware_stage/usr/lib/firmware/"*.spec.in
+
+  prepare_tarball "$firmware_tar" "$firmware_stage"
+
+  render_spec_template \
+    "$GAOKUN_DIR/packaging/linux-firmware-gaokun3.spec.in" \
+    "$RPM_TOPDIR/SPECS/linux-firmware-gaokun3.spec" \
+    "@FW_VERSION@" "$FIRMWARE_RPM_VERSION" \
+    "@SOURCE_NAME@" "$firmware_tar"
+
+  rpmbuild "${rpmbuild_common_args[@]}" -bb "$RPM_TOPDIR/SPECS/linux-firmware-gaokun3.spec"
+
+  local firmware_rpm_path
+  firmware_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name 'linux-firmware-gaokun3-*.rpm' -print -quit)"
+  FIRMWARE_RPM="$(basename "$firmware_rpm_path")"
+  cp "$firmware_rpm_path" "$ARTIFACT_DIR/$FIRMWARE_RPM"
 }
-
-prepare_kernel_package
-prepare_modules_package
-prepare_kernel_devel_package
-prepare_firmware_package
-
-prepare_tarball "kernel-gaokun3.tar.gz" "$KERNEL_STAGE"
-prepare_tarball "kernel-modules-gaokun3.tar.gz" "$MODULES_STAGE"
-prepare_tarball "kernel-devel-gaokun3.tar.gz" "$DEVEL_STAGE"
-prepare_tarball "linux-firmware-gaokun3.tar.gz" "$FIRMWARE_STAGE"
-
-render_spec_template \
-  "$GAOKUN_DIR/packaging/kernel-gaokun3.spec.in" \
-  "$RPM_TOPDIR/SPECS/kernel-gaokun3.spec"
-render_spec_template \
-  "$GAOKUN_DIR/packaging/kernel-modules-gaokun3.spec.in" \
-  "$RPM_TOPDIR/SPECS/kernel-modules-gaokun3.spec"
-render_spec_template \
-  "$GAOKUN_DIR/packaging/kernel-devel-gaokun3.spec.in" \
-  "$RPM_TOPDIR/SPECS/kernel-devel-gaokun3.spec"
-render_spec_template \
-  "$GAOKUN_DIR/firmware/linux-firmware-gaokun3.spec.in" \
-  "$RPM_TOPDIR/SPECS/linux-firmware-gaokun3.spec"
 
 rpmbuild_common_args=(
   --define "_topdir $RPM_TOPDIR"
@@ -132,51 +199,63 @@ rpmbuild_common_args=(
   --define "_source_payload $RPM_PAYLOAD_MACRO"
 )
 
-build_rpm_spec() {
-  local spec_path="$1"
-  rpmbuild "${rpmbuild_common_args[@]}" -bb "$spec_path"
-}
+build_variant_rpms "standard" "" "$KERN_SRC_BASE" "$KERN_OUT_BASE" "$BASE_KREL" \
+  "sc8280xp-huawei-gaokun3.dtb"
 
-build_rpm_spec "$RPM_TOPDIR/SPECS/kernel-gaokun3.spec" &
-pid_kernel=$!
-build_rpm_spec "$RPM_TOPDIR/SPECS/kernel-modules-gaokun3.spec" &
-pid_modules=$!
-build_rpm_spec "$RPM_TOPDIR/SPECS/kernel-devel-gaokun3.spec" &
-pid_devel=$!
-build_rpm_spec "$RPM_TOPDIR/SPECS/linux-firmware-gaokun3.spec" &
-pid_firmware=$!
+if [[ "$BUILD_EL2" == "true" ]]; then
+  if [[ -z "$EL2_KREL" ]]; then
+    echo "BUILD_EL2=true but kernel-release-el2.txt is missing" >&2
+    exit 1
+  fi
 
-wait "$pid_kernel"
-wait "$pid_modules"
-wait "$pid_devel"
-wait "$pid_firmware"
+  build_variant_rpms "el2" "-el2" "$KERN_SRC_EL2" "$KERN_OUT_EL2" "$EL2_KREL" \
+    "sc8280xp-huawei-gaokun3-el2.dtb"
+fi
 
-kernel_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name 'kernel-gaokun3-*.rpm' -print -quit)"
-kernel_modules_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name 'kernel-modules-gaokun3-*.rpm' -print -quit)"
-kernel_devel_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name 'kernel-devel-gaokun3-*.rpm' -print -quit)"
-firmware_rpm_path="$(find "$RPM_TOPDIR/RPMS" -name 'linux-firmware-gaokun3-*.rpm' -print -quit)"
+build_firmware_rpm
 
-kernel_rpm_name="$(basename "$kernel_rpm_path")"
-kernel_modules_rpm_name="$(basename "$kernel_modules_rpm_path")"
-kernel_devel_rpm_name="$(basename "$kernel_devel_rpm_path")"
-firmware_rpm_name="$(basename "$firmware_rpm_path")"
-
-cp "$kernel_rpm_path" "$ARTIFACT_DIR/$kernel_rpm_name"
-cp "$kernel_modules_rpm_path" "$ARTIFACT_DIR/$kernel_modules_rpm_name"
-cp "$kernel_devel_rpm_path" "$ARTIFACT_DIR/$kernel_devel_rpm_name"
-cp "$firmware_rpm_path" "$ARTIFACT_DIR/$firmware_rpm_name"
+EL2_MANIFEST_BLOCK=""
+EL2_RELEASE_BLOCK=""
+if [[ "$BUILD_EL2" == "true" ]]; then
+  EL2_MANIFEST_BLOCK="$(cat <<EOF
+,
+    "el2": {
+      "release": "${KREL_EL2}",
+      "packages": {
+        "kernel": "${KERNEL_RPM_EL2}",
+        "kernel_modules": "${MODULES_RPM_EL2}",
+        "kernel_devel": "${DEVEL_RPM_EL2}"
+      }
+    }
+EOF
+)"
+  EL2_RELEASE_BLOCK="$(cat <<EOF
+- \`${KERNEL_RPM_EL2}\`
+- \`${MODULES_RPM_EL2}\`
+- \`${DEVEL_RPM_EL2}\`
+EOF
+)"
+fi
 
 cat >"$ARTIFACT_DIR/package-manifest.json" <<EOF
 {
   "package_release_tag": "${PACKAGE_RELEASE_TAG}",
   "kernel_tag": "${KERNEL_TAG}",
-  "kernel_release": "${KREL}",
-  "built_at_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "build_el2": ${BUILD_EL2},
+  "built_at_utc": "${BUILD_TIME_UTC}",
+  "firmware_version": "${FIRMWARE_RPM_VERSION}",
+  "kernels": {
+    "standard": {
+      "release": "${KREL_STANDARD}",
+      "packages": {
+        "kernel": "${KERNEL_RPM_STANDARD}",
+        "kernel_modules": "${MODULES_RPM_STANDARD}",
+        "kernel_devel": "${DEVEL_RPM_STANDARD}"
+      }
+    }${EL2_MANIFEST_BLOCK}
+  },
   "packages": {
-    "kernel": "${kernel_rpm_name}",
-    "kernel_modules": "${kernel_modules_rpm_name}",
-    "kernel_devel": "${kernel_devel_rpm_name}",
-    "firmware": "${firmware_rpm_name}"
+    "firmware": "${FIRMWARE_RPM}"
   }
 }
 EOF
@@ -186,14 +265,15 @@ cat >"$ARTIFACT_DIR/package-release-body.md" <<EOF
 
 - Package Tag: \`${PACKAGE_RELEASE_TAG}\`
 - Kernel Tag: \`${KERNEL_TAG}\`
-- Kernel Release: \`${KREL}\`
+- EL2 Package Set Included: \`${BUILD_EL2}\`
+- Firmware Version: \`${FIRMWARE_RPM_VERSION}\`
 - Architecture: \`aarch64\`
-- Build Time (UTC): \`$(date -u +"%Y-%m-%dT%H:%M:%SZ")\`
+- Build Time (UTC): \`${BUILD_TIME_UTC}\`
 
 ## Included RPMs
 
-- \`${kernel_rpm_name}\`
-- \`${kernel_modules_rpm_name}\`
-- \`${kernel_devel_rpm_name}\`
-- \`${firmware_rpm_name}\`
+- \`${KERNEL_RPM_STANDARD}\`
+- \`${MODULES_RPM_STANDARD}\`
+- \`${DEVEL_RPM_STANDARD}\`
+${EL2_RELEASE_BLOCK}- \`${FIRMWARE_RPM}\`
 EOF

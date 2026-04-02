@@ -23,6 +23,11 @@ on:
         description: Extra packages to install (space-separated)
         required: true
         default: "fcitx5-chinese-addons gnome-tweaks gnome-extensions-app telnet mpv v4l-utils vim git htop fastfetch screen firefox"
+      build_el2:
+        description: Build and include optional -gaokun3-el2 kernel and EL2 EFI payloads
+        required: true
+        default: false
+        type: boolean
       rebuild_package_rpms:
         description: Rebuild gaokun package RPMs before image build
         required: true
@@ -38,7 +43,7 @@ jobs:
     uses: ./.github/workflows/gaokun3-package-rpms.yml
     with:
       kernel_tag: ${{ github.event.inputs.kernel_tag }}
-      package_release_tag: gaokun3-packages-rpm
+      build_el2: ${{ github.event.inputs.build_el2 == 'true' }}
     secrets: inherit
 
   build-and-release:
@@ -52,6 +57,7 @@ jobs:
       DESKTOP_ENVIRONMENT: ${{ github.event.inputs.desktop_environment }}
       EXCLUDED_PACKAGES: ${{ github.event.inputs.excluded_packages }}
       EXTRA_PACKAGES: ${{ github.event.inputs.extra_packages }}
+      BUILD_EL2: ${{ github.event.inputs.build_el2 }}
       IMAGE_SIZE: 12G
       IMAGE_CHUNK_SIZE: 1900M
       GAOKUN_DIR: ${{ github.workspace }}
@@ -59,7 +65,6 @@ jobs:
       ROOTFS_DIR: ${{ github.workspace }}/build-fedora/rootfs
       ARTIFACT_DIR: ${{ github.workspace }}/build-fedora/artifacts
       PACKAGE_RPMS_DIR: ${{ github.workspace }}/build-fedora/package-rpms
-      PACKAGE_RELEASE_TAG: gaokun3-packages-rpm
       IMAGE_FILE: ${{ github.workspace }}/build-fedora/fedora-${{ github.event.inputs.fedora_release }}-gaokun3.img
 
     steps:
@@ -78,6 +83,39 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p "$WORKDIR" "$ROOTFS_DIR" "$ARTIFACT_DIR"
+
+      - name: Resolve package release tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+
+          if [[ "${{ github.event.inputs.rebuild_package_rpms }}" == "true" ]]; then
+            package_release_tag="${{ needs.build-package-rpms.outputs.package_release_tag }}"
+          else
+            safe_kernel_tag="${KERNEL_TAG//\//-}"
+            safe_kernel_tag="${safe_kernel_tag//[^A-Za-z0-9._-]/-}"
+            profile="std"
+            if [[ "$BUILD_EL2" == "true" ]]; then
+              profile="std-el2"
+            fi
+            prefix="gaokun3-rpms-${safe_kernel_tag}-${profile}-"
+
+            releases_json="$WORKDIR/releases.json"
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              -o "$releases_json"
+
+            package_release_tag="$(jq -r --arg prefix "$prefix" '.[] | select(.tag_name | startswith($prefix)) | .tag_name' "$releases_json" | head -n 1)"
+            if [[ -z "$package_release_tag" ]]; then
+              echo "no package release found for prefix ${prefix}" >&2
+              exit 1
+            fi
+          fi
+
+          echo "PACKAGE_RELEASE_TAG=$package_release_tag" >> "$GITHUB_ENV"
 
       - name: Download gaokun package RPMs
         env:
@@ -111,16 +149,32 @@ jobs:
 
           manifest_path="$PACKAGE_RPMS_DIR/package-manifest.json"
           manifest_kernel_tag="$(jq -r '.kernel_tag' "$manifest_path")"
+          manifest_build_el2="$(jq -r '.build_el2' "$manifest_path")"
 
           if [[ "$manifest_kernel_tag" != "$KERNEL_TAG" ]]; then
             echo "package release kernel tag mismatch: expected ${KERNEL_TAG}, got ${manifest_kernel_tag}" >&2
             exit 1
           fi
 
-          for asset_name in \
-            "$(jq -r '.packages.kernel' "$manifest_path")" \
-            "$(jq -r '.packages.kernel_modules' "$manifest_path")" \
-            "$(jq -r '.packages.firmware' "$manifest_path")"; do
+          if [[ "$BUILD_EL2" == "true" && "$manifest_build_el2" != "true" ]]; then
+            echo "package release ${PACKAGE_RELEASE_TAG} does not contain EL2 packages" >&2
+            exit 1
+          fi
+
+          asset_names=(
+            "$(jq -r '.kernels.standard.packages.kernel' "$manifest_path")"
+            "$(jq -r '.kernels.standard.packages.kernel_modules' "$manifest_path")"
+            "$(jq -r '.packages.firmware' "$manifest_path")"
+          )
+
+          if [[ "$BUILD_EL2" == "true" ]]; then
+            asset_names+=(
+              "$(jq -r '.kernels.el2.packages.kernel' "$manifest_path")"
+              "$(jq -r '.kernels.el2.packages.kernel_modules' "$manifest_path")"
+            )
+          fi
+
+          for asset_name in "${asset_names[@]}"; do
             asset_url="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .url' "$release_json")"
 
             if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
@@ -153,7 +207,7 @@ jobs:
                 --exclude="'"$EXCLUDED_PACKAGES"'" \
                 install \
                 @core @standard "'"$DESKTOP_ENVIRONMENT"'" \
-                grub2-efi-aa64-modules efibootmgr shim-aa64 alsa-ucm \
+                systemd-boot-unsigned alsa-ucm \
                 langpacks-en langpacks-zh_CN \
                 google-noto-color-emoji-fonts google-noto-emoji-fonts \
                 alsa-utils pipewire-utils \
@@ -176,11 +230,36 @@ jobs:
         run: |
           set -euxo pipefail
           manifest_path="$PACKAGE_RPMS_DIR/package-manifest.json"
-          manifest_kernel_release="$(jq -r '.kernel_release' "$manifest_path")"
-          kernel_rpm_name="$(jq -r '.packages.kernel' "$manifest_path")"
-          kernel_modules_rpm_name="$(jq -r '.packages.kernel_modules' "$manifest_path")"
+          manifest_kernel_release="$(jq -r '.kernels.standard.release' "$manifest_path")"
+          kernel_rpm_name="$(jq -r '.kernels.standard.packages.kernel' "$manifest_path")"
+          kernel_modules_rpm_name="$(jq -r '.kernels.standard.packages.kernel_modules' "$manifest_path")"
           firmware_rpm_name="$(jq -r '.packages.firmware' "$manifest_path")"
           echo "$manifest_kernel_release" > "$WORKDIR/kernel-release.txt"
+
+          el2_kernel_release=""
+          el2_kernel_rpm_name=""
+          el2_kernel_modules_rpm_name=""
+          if [[ "$BUILD_EL2" == "true" ]]; then
+            el2_kernel_release="$(jq -r '.kernels.el2.release' "$manifest_path")"
+            el2_kernel_rpm_name="$(jq -r '.kernels.el2.packages.kernel' "$manifest_path")"
+            el2_kernel_modules_rpm_name="$(jq -r '.kernels.el2.packages.kernel_modules' "$manifest_path")"
+            echo "$el2_kernel_release" > "$WORKDIR/kernel-release-el2.txt"
+          else
+            rm -f "$WORKDIR/kernel-release-el2.txt"
+          fi
+
+          rpm_install_args=(
+            "\"$PACKAGE_RPMS_DIR/$kernel_rpm_name\""
+            "\"$PACKAGE_RPMS_DIR/$kernel_modules_rpm_name\""
+            "\"$PACKAGE_RPMS_DIR/$firmware_rpm_name\""
+          )
+          if [[ "$BUILD_EL2" == "true" ]]; then
+            rpm_install_args+=(
+              "\"$PACKAGE_RPMS_DIR/$el2_kernel_rpm_name\""
+              "\"$PACKAGE_RPMS_DIR/$el2_kernel_modules_rpm_name\""
+            )
+          fi
+          rpm_install_args_string="$(printf '%s ' "${rpm_install_args[@]}")"
 
           sudo docker run --rm \
             -v "$(dirname "$ROOTFS_DIR")":"$(dirname "$ROOTFS_DIR")" \
@@ -191,12 +270,13 @@ jobs:
             bash -euxo pipefail -c '
               dnf -y --installroot="'"$ROOTFS_DIR"'" --releasever="'"$FEDORA_RELEASE"'" --use-host-config --nogpgcheck \
                 install \
-                "'"$PACKAGE_RPMS_DIR"'/'"$kernel_rpm_name"'" \
-                "'"$PACKAGE_RPMS_DIR"'/'"$kernel_modules_rpm_name"'" \
-                "'"$PACKAGE_RPMS_DIR"'/'"$firmware_rpm_name"'"
+                '"$rpm_install_args_string"'
             '
 
           sudo depmod -b "$ROOTFS_DIR" -a "$manifest_kernel_release"
+          if [[ "$BUILD_EL2" == "true" ]]; then
+            sudo depmod -b "$ROOTFS_DIR" -a "$el2_kernel_release"
+          fi
 
       - name: Populate rootfs (tools and services)
         run: |
@@ -217,7 +297,7 @@ jobs:
           sudo cp "$GAOKUN_DIR/tools/audio/sc8280xp.conf" \
             "$ROOTFS_DIR/usr/share/alsa/ucm2/Qualcomm/sc8280xp/"
 
-      - name: Create disk image and configure boot (EL2 DTB mandatory)
+      - name: Create disk image and configure boot
         run: |
           scripts/ci/50_make_image_fedora.sh
 

@@ -1,7 +1,7 @@
 # Huawei MateBook E Go 2023 Ubuntu 26.04 手动构建指南
 
 > **目标机型**：Huawei MateBook E Go 2023 (`SC8280XP` / `gaokun3`)  
-> **目标系统**：Ubuntu 26.04 (Plucky Puffin) GNOME，GRUB 启动，ext4 根文件系统  
+> **目标系统**：Ubuntu 26.04 (Plucky Puffin) GNOME，systemd-boot 启动，ext4 根文件系统  
 > **推荐宿主机**：Ubuntu/Debian 或其他支持 `debootstrap` 的发行版  
 > **仓库假设**：本文默认你当前仓库位于 `~/gaokun/linux-gaokun-buildbot`
 
@@ -56,7 +56,9 @@ fi
 export GAOKUN_DIR=~/gaokun/linux-gaokun-buildbot
 export WORKDIR=~/gaokun/matebook-build-ubuntu
 export KERN_SRC=~/gaokun/mainline-linux
+export KERN_SRC_EL2=~/gaokun/mainline-linux-el2
 export KERN_OUT=~/gaokun/kernel-out
+export KERN_OUT_EL2=~/gaokun/kernel-out-el2
 export FW_REPO=$GAOKUN_DIR/firmware
 export ROOTFS_DIR=$WORKDIR/rootfs
 export IMAGE_FILE=$WORKDIR/ubuntu-26.04-gaokun3.img
@@ -66,16 +68,16 @@ export IMAGE_FILE=$WORKDIR/ubuntu-26.04-gaokun3.img
 
 ## 第二步：编译内核
 
-应用项目内核补丁后直接构建。
+先编译标准内核。
 当前触摸屏方案已经统一为内核内的 Himax HX83121A SPI 驱动，不再额外安装 DKMS：
 
 ```bash
 cd $KERN_SRC
 
 # 应用项目内置补丁
+git config user.name "local builder"
+git config user.email "builder@example.com"
 git am $GAOKUN_DIR/patches/*.patch
-# EL2 Hypervisor 相关补丁单独放在 el2/ 目录下，按需应用
-git am $GAOKUN_DIR/patches/el2/*.patch
 
 mkdir -p $KERN_OUT
 
@@ -86,6 +88,26 @@ make O=$KERN_OUT ARCH=arm64 -j$(nproc)
 
 KREL=$(cat $KERN_OUT/include/config/kernel.release)
 echo $KREL
+```
+
+如果你需要 EL2，再单独构建一套带 `-gaokun3-el2` 后缀的内核：
+
+```bash
+git -C $KERN_SRC worktree add --detach $KERN_SRC_EL2 HEAD
+git -C $KERN_SRC_EL2 config user.name "local builder"
+git -C $KERN_SRC_EL2 config user.email "builder@example.com"
+git -C $KERN_SRC_EL2 apply --index $GAOKUN_DIR/patches/el2/*.patch
+git -C $KERN_SRC_EL2 commit -m "Apply EL2 patches"
+
+mkdir -p $KERN_OUT_EL2
+
+make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 gaokun3_defconfig
+$KERN_SRC_EL2/scripts/config --file $KERN_OUT_EL2/.config --set-str LOCALVERSION "-gaokun3-el2"
+make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 olddefconfig
+make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 -j$(nproc)
+
+KREL_EL2=$(cat $KERN_OUT_EL2/include/config/kernel.release)
+echo $KREL_EL2
 ```
 
 ---
@@ -150,8 +172,7 @@ ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
 # 先安装内核相关依赖以及 initramfs-tools
 apt-get install -y \
-    linux-base initramfs-tools kmod \
-    grub-efi-arm64 grub-efi-arm64-bin grub-efi-arm64-signed shim-signed efibootmgr
+    linux-base initramfs-tools kmod systemd-boot-efi
 
 # 安装基础网络与压缩工具（ubuntu-base 中可能缺失）
 apt-get install -y \
@@ -215,19 +236,21 @@ sudo mkdir -p $ROOTFS_DIR/boot
 sudo cp $KERN_OUT/arch/arm64/boot/Image \
     $ROOTFS_DIR/boot/vmlinuz-$KREL
 
-# Ubuntu 风格：DTB 存放路径（GRUB 10_linux 脚本需要命名为 /boot/dtb-$KREL）
+# Ubuntu 风格：DTB 存放路径
 sudo mkdir -p $ROOTFS_DIR/usr/lib/linux-image-$KREL/qcom
 sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb \
      $ROOTFS_DIR/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb
-# EL2 DTB 默认在构建产物中，直接复制
-sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-el2.dtb \
-     $ROOTFS_DIR/usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3-el2.dtb
-# 正常引导使用的 DTB（供 10_linux 自动生成条目）
-sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb \
-     $ROOTFS_DIR/boot/dtb-$KREL
-# EL2 引导使用的 DTB（供自定义 GRUB 条目使用）
-sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-el2.dtb \
-     $ROOTFS_DIR/boot/dtb-el2-$KREL
+
+# 如果需要 EL2，再安装第二套 EL2 内核与 DTB
+if [ -n "$KREL_EL2" ]; then
+    sudo make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 INSTALL_MOD_PATH=$ROOTFS_DIR modules_install
+    sudo rm -f $ROOTFS_DIR/lib/modules/$KREL_EL2/{build,source}
+    sudo cp $KERN_OUT_EL2/arch/arm64/boot/Image \
+        $ROOTFS_DIR/boot/vmlinuz-$KREL_EL2
+    sudo mkdir -p $ROOTFS_DIR/usr/lib/linux-image-$KREL_EL2/qcom
+    sudo cp $KERN_OUT_EL2/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3-el2.dtb \
+         $ROOTFS_DIR/usr/lib/linux-image-$KREL_EL2/qcom/sc8280xp-huawei-gaokun3-el2.dtb
+fi
 
 # 直接复制项目内置的最小固件集
 sudo mkdir -p $ROOTFS_DIR/lib/firmware
@@ -279,9 +302,9 @@ cd $WORKDIR
 truncate -s 12G $IMAGE_FILE
 
 parted -s $IMAGE_FILE mklabel gpt
-parted -s $IMAGE_FILE mkpart EFI fat32 1MiB 256MiB
+parted -s $IMAGE_FILE mkpart EFI fat32 1MiB 1025MiB
 parted -s $IMAGE_FILE set 1 esp on
-parted -s $IMAGE_FILE mkpart rootfs ext4 256MiB 100%
+parted -s $IMAGE_FILE mkpart rootfs ext4 1025MiB 100%
 
 LOOP=$(sudo losetup --show -fP $IMAGE_FILE)
 sudo mkfs.vfat -F32 -n EFI ${LOOP}p1
@@ -309,7 +332,7 @@ UUID=${EFI_UUID}   /boot/efi vfat   defaults,nofail,x-systemd.device-timeout=10s
 EOF
 ```
 
-### 3. chroot 初始化并生成 GRUB
+### 3. chroot 初始化并生成 systemd-boot
 
 ```bash
 cleanup_mounts() {
@@ -321,7 +344,6 @@ cleanup_mounts() {
     sudo umount $MNT/run 2>/dev/null || true
     sudo umount $MNT 2>/dev/null || true
 }
-trap cleanup_mounts EXIT
 
 sudo mount --bind /dev $MNT/dev
 sudo mount --bind /dev/pts $MNT/dev/pts
@@ -335,230 +357,92 @@ sudo chroot $MNT /bin/bash
 在 chroot 中执行：
 
 ```bash
-KREL="$(ls /lib/modules/ | head -n1)"
-
-# 创建默认用户与主机名
-echo "ubuntu" > /etc/hostname
-useradd -m -s /bin/bash -G sudo user
-echo "user:user" | chpasswd
-mkdir -p /etc/sudoers.d
-echo "%sudo ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sudo-nopasswd
-chmod 440 /etc/sudoers.d/sudo-nopasswd
-cat > /etc/default/locale <<EOF
-LANG=zh_CN.UTF-8
-LC_MESSAGES=zh_CN.UTF-8
-EOF
-
-mkdir -p /var/lib/AccountsService/users
-cat > /var/lib/AccountsService/users/user <<EOF
-[User]
-Language=zh_CN.UTF-8
-EOF
-cat > /var/lib/AccountsService/users/gdm <<EOF
-[User]
-Language=zh_CN.UTF-8
-SystemAccount=true
-EOF
-
-# 预置屏幕方向与缩放，并同步给 GDM 登录界面
-mkdir -p /home/user/.config
-cat > /home/user/.config/monitors.xml <<EOF
-<monitors version="2">
-    <configuration>
-        <layoutmode>logical</layoutmode>
-        <logicalmonitor>
-            <x>0</x>
-            <y>0</y>
-            <scale>1.6666666269302368</scale>
-            <primary>yes</primary>
-            <transform>
-                <rotation>right</rotation>
-                <flipped>no</flipped>
-            </transform>
-            <monitor>
-                <monitorspec>
-                    <connector>DSI-1</connector>
-                    <vendor>unknown</vendor>
-                    <product>unknown</product>
-                    <serial>unknown</serial>
-                </monitorspec>
-                <mode>
-                    <width>1600</width>
-                    <height>2560</height>
-                    <rate>60.000</rate>
-                </mode>
-            </monitor>
-        </logicalmonitor>
-    </configuration>
-</monitors>
-EOF
-
-# 开启图形、网络、SSH、触控板、显示同步和 Xwayland 目录修复服务
-systemctl enable gdm NetworkManager ssh huawei-touchpad.service \
-    gaokun-fix-x11-unix.service gdm-monitor-sync.service
-
-install -d -m 1777 -o root -g root /tmp/.X11-unix
-
-cat > /etc/systemd/system/gaokun-fix-x11-unix.service <<'EOF'
-[Unit]
-Description=Fix /tmp/.X11-unix ownership for Xwayland
-After=gdm.service
-Wants=gdm.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh -c 'mkdir -p /tmp/.X11-unix && chown root:root /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix'
-
-[Install]
-WantedBy=graphical.target
-EOF
-
-# 运行时与 initramfs 都需要的关键模块
-mkdir -p /etc/modules-load.d
-echo -e "pci-pwrctrl-pwrseq\nath11k_pci" > /etc/modules-load.d/wifi.conf
-echo "btqca" > /etc/modules-load.d/bluetooth.conf
-echo -e "panel-himax-hx83121a\nhimax_hx83121a_spi\nmsm\nhid_multitouch" > /etc/modules-load.d/display.conf
-echo -e "lpasscc_sc8280xp\nsnd-soc-sc8280xp" > /etc/modules-load.d/audio.conf
-echo -e "huawei-gaokun-ec\nhuawei-gaokun-battery\nucsi_huawei_gaokun" > /etc/modules-load.d/battery.conf
-
-mkdir -p /etc/modprobe.d
-echo "softdep pinctrl_sc8280xp_lpass_lpi pre: lpasscc_sc8280xp" > /etc/modprobe.d/audio-deps.conf
-
-chown -R user:user /home/user
-
-# Ubuntu 使用 initramfs-tools 生成 initramfs
-# 将关键模块写入 /etc/initramfs-tools/modules
-cat >> /etc/initramfs-tools/modules <<MODEOF
-# Storage and USB
-nvme
-phy-qcom-qmp-pcie
-phy-qcom-qmp-combo
-phy-qcom-qmp-usb
-phy-qcom-snps-femto-v2
-usb-storage
-uas
-typec
-# WiFi
-pci-pwrctrl-pwrseq
-ath11k
-ath11k_pci
-# Input
-i2c-hid-of
-# Audio
-lpasscc_sc8280xp
-snd-soc-sc8280xp
-pinctrl_sc8280xp_lpass_lpi
-MODEOF
-
 update-initramfs -c -k $KREL
+if [ -n "$KREL_EL2" ]; then
+    update-initramfs -c -k $KREL_EL2
+fi
 
-# 配置 GRUB
+bootctl --esp-path=/boot/efi install
+
 ROOT_UUID=$(blkid -s UUID -o value /dev/disk/by-label/rootfs)
+MACHINE_ID=$(cat /etc/machine-id)
 
-sudo mkdir -p /boot/efi/EFI/BOOT /boot/efi/EFI/ubuntu
-cat > /etc/default/grub <<'EOF'
-GRUB_DEFAULT=0
-GRUB_TIMEOUT=5
-GRUB_DISTRIBUTOR="Ubuntu"
-GRUB_CMDLINE_LINUX_DEFAULT=""
-GRUB_CMDLINE_LINUX="clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1"
-GRUB_DISABLE_OS_PROBER=true
-GRUB_DISABLE_SUBMENU=false
-GRUB_DISABLE_LINUX_UUID=false
-GRUB_TERMINAL_OUTPUT=gfxterm
-GRUB_GFXMODE=auto
-GRUB_GFXPAYLOAD_LINUX=keep
-GRUB_RECORDFAIL_TIMEOUT=5
+mkdir -p /boot/efi/loader/entries
+mkdir -p /boot/efi/gaokun3/ubuntu/$KREL
+
+cp /boot/vmlinuz-$KREL /boot/efi/gaokun3/ubuntu/$KREL/linux
+cp /boot/initrd.img-$KREL /boot/efi/gaokun3/ubuntu/$KREL/initrd
+cp /usr/lib/linux-image-$KREL/qcom/sc8280xp-huawei-gaokun3.dtb \
+   /boot/efi/gaokun3/ubuntu/$KREL/sc8280xp-huawei-gaokun3.dtb
+
+cat > /boot/efi/loader/loader.conf <<EOF
+default ${MACHINE_ID}-ubuntu-gaokun3-${KREL}.conf
+timeout 5
+console-mode keep
+editor no
 EOF
 
-cat > /tmp/early-grub.cfg <<EOF
-search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-set prefix=(\$root)/boot/grub
+cat > /boot/efi/loader/entries/${MACHINE_ID}-ubuntu-gaokun3-${KREL}.conf <<EOF
+title Ubuntu 26.04
+version ${KREL}
+machine-id ${MACHINE_ID}
+sort-key gaokun3
+architecture AA64
+linux /gaokun3/ubuntu/${KREL}/linux
+initrd /gaokun3/ubuntu/${KREL}/initrd
+devicetree /gaokun3/ubuntu/${KREL}/sc8280xp-huawei-gaokun3.dtb
+options root=UUID=${ROOT_UUID} clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1
 EOF
 
-grub-mkimage -c /tmp/early-grub.cfg \
-    -o /boot/efi/EFI/BOOT/BOOTAA64.EFI \
-    -O arm64-efi -p /boot/grub \
-    part_gpt ext2 fat search search_fs_uuid search_label normal linux \
-    configfile reboot echo test extcmd efifwsetup
+if [ -n "$KREL_EL2" ]; then
+    mkdir -p /boot/efi/gaokun3/ubuntu/$KREL_EL2
+    mkdir -p /boot/efi/EFI/systemd/drivers
+    mkdir -p /boot/efi/firmware
 
-rm -f /tmp/early-grub.cfg
-# 为 EL2 DTB 新增 GRUB 自定义引导项
-# 使用 11_ 前缀，使其排在 10_linux 自动生成条目之后
-cat > /etc/grub.d/11_gaokun_el2 <<SCRIPTEOF
-#!/bin/sh
-exec tail -n +3 \$0
+    cp /boot/vmlinuz-$KREL_EL2 /boot/efi/gaokun3/ubuntu/$KREL_EL2/linux
+    cp /boot/initrd.img-$KREL_EL2 /boot/efi/gaokun3/ubuntu/$KREL_EL2/initrd
+    cp /usr/lib/linux-image-$KREL_EL2/qcom/sc8280xp-huawei-gaokun3-el2.dtb \
+       /boot/efi/gaokun3/ubuntu/$KREL_EL2/sc8280xp-huawei-gaokun3-el2.dtb
 
-menuentry 'Ubuntu ${KREL} (EL2 Hypervisor)' --class ubuntu --class gnu-linux --class gnu --class os {
-    search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-    linux   /boot/vmlinuz-${KREL} root=UUID=${ROOT_UUID} clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1
-    initrd  /boot/initrd.img-${KREL}
-    devicetree /boot/dtb-el2-${KREL}
-}
-SCRIPTEOF
-chmod +x /etc/grub.d/11_gaokun_el2
+    cat > /boot/efi/loader/entries/${MACHINE_ID}-ubuntu-gaokun3-${KREL_EL2}.conf <<EOF
+title Ubuntu 26.04 (EL2 Hypervisor)
+version ${KREL_EL2}
+machine-id ${MACHINE_ID}
+sort-key gaokun3-el2
+architecture AA64
+linux /gaokun3/ubuntu/${KREL_EL2}/linux
+initrd /gaokun3/ubuntu/${KREL_EL2}/initrd
+devicetree /gaokun3/ubuntu/${KREL_EL2}/sc8280xp-huawei-gaokun3-el2.dtb
+options root=UUID=${ROOT_UUID} clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1
+EOF
+fi
 
-update-grub
-mkdir -p /boot/grub/arm64-efi
-cp -a /usr/lib/grub/arm64-efi/. /boot/grub/arm64-efi/
-sed -i 's/^GRUB_DISABLE_OS_PROBER=true$/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
-
-sudo cp /boot/efi/EFI/BOOT/BOOTAA64.EFI /boot/efi/EFI/ubuntu/grubaa64.efi
-sudo bash -c "cat > /boot/efi/EFI/BOOT/grub.cfg <<EOF
-search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
-set prefix=(\\\$root)/boot/grub
-configfile (\\\$root)/boot/grub/grub.cfg
-EOF"
-
-sudo cp /boot/efi/EFI/BOOT/grub.cfg /boot/efi/EFI/ubuntu/grub.cfg
-
-# 可选：确认最终 grub.cfg 中已经带上 devicetree
-grep -n "devicetree\|dtb" /boot/grub/grub.cfg
 exit
 ```
 
-回到宿主机后清理挂载：
+### 4. 收尾清理
 
 ```bash
-trap - EXIT
+if [ -n "$KREL_EL2" ]; then
+    sudo mkdir -p $MNT/boot/efi/EFI/systemd/drivers
+    sudo mkdir -p $MNT/boot/efi/firmware
+    sudo cp $GAOKUN_DIR/tools/el2/slbounceaa64.efi \
+        $MNT/boot/efi/EFI/systemd/drivers/
+    sudo cp $GAOKUN_DIR/tools/el2/qebspilaa64.efi \
+        $MNT/boot/efi/EFI/systemd/drivers/
+    sudo cp $GAOKUN_DIR/tools/el2/tcblaunch.exe \
+        $MNT/boot/efi/
+    sudo cp -r $MNT/lib/firmware/qcom $MNT/boot/efi/firmware/
+fi
+
+sync
 cleanup_mounts
 sudo losetup -d $LOOP
 ```
 
 ---
 
-## 第五步：刷写镜像
+## 第五步：双系统和 EL2 说明
 
-镜像生成后位于：
-
-```bash
-$WORKDIR/ubuntu-26.04-gaokun3.img
-```
-
-推荐先刷入 USB 存储：
-
-```bash
-sudo dd if=$IMAGE_FILE of=/dev/sdX bs=4M status=progress conv=fsync
-```
-
-也可以使用 `balenaEtcher`、`Rufus`、`gnome-disks` 等图形工具。
-
-刷入后开机按 `F12`，在 UEFI 启动菜单里选择对应的 USB 引导项启动。
-
-如果要写入机器内置 NVMe，还需要额外分区、复制系统并调整 EFI 引导项，不建议把上面的 `dd` 目标直接替换成内置盘设备名后盲刷。
-
----
-
-## 额外说明
-
-- 首次启动后如需扩容 ext4，可使用 `gnome-disks`，或执行：
-  ```bash
-  lsblk
-  sudo LC_ALL=C growpart /dev/sda 2
-  sudo resize2fs /dev/sda2
-  ```
-  如果你的启动盘不是 `sda`，把上面的设备名替换成实际值即可。
-- 文中所有 `tools/` 与 firmware 都来自当前仓库，不依赖外部设备专属仓库
-- 如果你需要自动化构建，可直接参考 GitHub Actions workflow：`.github/workflows/ubuntu-gaokun3-release.yml`
-- 如果 GDM 登录界面的方向、主屏或外接显示器布局不对，先在用户会话里调好显示设置，再把 `~/.config/monitors.xml` 复制到 `/var/lib/gdm3/seat0/config/monitors.xml`，并执行 `chown --reference=/var/lib/gdm3/seat0/config /var/lib/gdm3/seat0/config/monitors.xml`
-- 如需安装 Linux 到内置 nvme 固态硬盘与 Windows 共存，推荐使用 [Simple Init](https://github.com/BigfootACA/simple-init) ([UEFI Binaries](https://github.com/rodriguezst/simple-init/releases/download/20241118/SimpleInit-AARCH64.efi)) 替换 `\EFI\BOOT\BOOTAA64.EFI` 以更方便地支持 Linux + Windows 多系统引导
+- 双系统覆盖 EFI 的方式请参考 [dual_boot_guide.md](dual_boot_guide.md)
+- EL2 的 EFI 文件放置方式请参考 [el2_kvm_guide.md](el2_kvm_guide.md)

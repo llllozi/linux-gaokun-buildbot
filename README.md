@@ -2,6 +2,8 @@
 
 Build scripts, patches, kernel config, DTS files, tools, and firmware for Linux images targeting the Huawei MateBook E Go 2023 (`gaokun3` / `SC8280XP`).
 
+The image pipeline now uses `systemd-boot` by default and can optionally build a second EL2 kernel variant with `CONFIG_LOCALVERSION="-gaokun3-el2"`.
+
 ## What is included
 
 - `patches/`: kernel patches and device support changes
@@ -10,13 +12,14 @@ Build scripts, patches, kernel config, DTS files, tools, and firmware for Linux 
 - `dts/`: local mirrors of the patched device tree sources kept in the patch series
 - `firmware/`: minimal firmware bundle used by the image build
 - `packaging/`: RPM spec templates for kernel and firmware packages
-- `tools/`: device-specific helper scripts and service files
+- `tools/`: device-specific helper scripts, service files, and EL2 EFI payloads
 - `scripts/ci/`: workflow build, image creation, and packaging scripts
 
-The image pipeline now builds and installs a dedicated package set:
+The package pipeline builds and installs dedicated package sets:
 
 - **Fedora (RPM)**: `kernel-gaokun3`, `kernel-modules-gaokun3`, `kernel-devel-gaokun3`, `linux-firmware-gaokun3`
 - **Ubuntu (DEB)**: `linux-image-gaokun3`, `linux-modules-gaokun3`, `linux-headers-gaokun3`, `linux-firmware-gaokun3`
+- **Optional EL2 variants**: `*-gaokun3-el2` package set for the second EL2 kernel build
 
 ## Getting started
 
