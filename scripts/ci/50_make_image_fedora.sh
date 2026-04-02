@@ -205,7 +205,12 @@ if [[ "$BUILD_EL2" == "true" && -n "$KREL_EL2" ]]; then
     "$MNT/boot/efi/EFI/systemd/drivers/qebspilaa64.efi"
   sudo install -Dm644 "$GAOKUN_DIR/tools/el2/tcblaunch.exe" \
     "$MNT/boot/efi/tcblaunch.exe"
-  sudo rsync -a "$MNT/lib/firmware/qcom/" "$MNT/boot/efi/firmware/qcom/"
+  sudo install -Dm644 "$MNT/lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcadsp8280.mbn" \
+    "$MNT/boot/efi/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcadsp8280.mbn"
+  sudo install -Dm644 "$MNT/lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qccdsp8280.mbn" \
+    "$MNT/boot/efi/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qccdsp8280.mbn"
+  sudo install -Dm644 "$MNT/lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcslpi8280.mbn" \
+    "$MNT/boot/efi/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcslpi8280.mbn"
 
   sudo tee "$ENTRY_DIR/$EL2_ENTRY_FILE" >/dev/null <<EOF
 title Fedora Linux ${FEDORA_RELEASE} (EL2 Hypervisor)

@@ -32,7 +32,7 @@
 sudo apt-get update
 sudo apt-get install -y \
     gcc make bison flex bc libssl-dev libelf-dev dwarves \
-    git parted dosfstools e2fsprogs curl python3 rsync \
+    git parted dosfstools e2fsprogs curl python3 rsync ccache \
     debootstrap qemu-user-static binfmt-support zstd xz-utils kmod
 ```
 
@@ -56,12 +56,20 @@ fi
 export GAOKUN_DIR=~/gaokun/linux-gaokun-buildbot
 export WORKDIR=~/gaokun/matebook-build-ubuntu
 export KERN_SRC=~/gaokun/mainline-linux
-export KERN_SRC_EL2=~/gaokun/mainline-linux-el2
 export KERN_OUT=~/gaokun/kernel-out
 export KERN_OUT_EL2=~/gaokun/kernel-out-el2
 export FW_REPO=$GAOKUN_DIR/firmware
 export ROOTFS_DIR=$WORKDIR/rootfs
 export IMAGE_FILE=$WORKDIR/ubuntu-26.04-gaokun3.img
+export CCACHE_DIR=$WORKDIR/.ccache
+export CCACHE_BASEDIR=$WORKDIR
+export CCACHE_NOHASHDIR=true
+export CCACHE_COMPILERCHECK=content
+if [ -d /usr/lib64/ccache ]; then
+    export PATH=/usr/lib64/ccache:$PATH
+elif [ -d /usr/lib/ccache ]; then
+    export PATH=/usr/lib/ccache:$PATH
+fi
 ```
 
 ---
@@ -80,34 +88,37 @@ git config user.email "builder@example.com"
 git am $GAOKUN_DIR/patches/*.patch
 
 mkdir -p $KERN_OUT
+ccache -z
 
 # 根据 patch 后的 gaokun3_defconfig 生成配置，再补齐新内核默认选项
 make O=$KERN_OUT ARCH=arm64 gaokun3_defconfig
 make O=$KERN_OUT ARCH=arm64 olddefconfig
 make O=$KERN_OUT ARCH=arm64 -j$(nproc)
+make O=$KERN_OUT ARCH=arm64 modules_prepare
 
 KREL=$(cat $KERN_OUT/include/config/kernel.release)
 echo $KREL
+KREL_EL2=""
+ccache -s
 ```
 
-如果你需要 EL2，再单独构建一套带 `-gaokun3-el2` 后缀的内核：
+如果你需要 EL2，建议先把标准内核安装到 rootfs，或者先单独备份好 `Image`、`dtb`、`modules` 产物，然后在同一套源码上继续构建带 `-gaokun3-el2` 后缀的内核，EL2 产物单独放到另一个输出目录：
 
 ```bash
-git -C $KERN_SRC worktree add --detach $KERN_SRC_EL2 HEAD
-git -C $KERN_SRC_EL2 config user.name "local builder"
-git -C $KERN_SRC_EL2 config user.email "builder@example.com"
-git -C $KERN_SRC_EL2 apply --index $GAOKUN_DIR/patches/el2/*.patch
-git -C $KERN_SRC_EL2 commit -m "Apply EL2 patches"
+rm -rf $KERN_OUT_EL2
+git -C $KERN_SRC apply --index $GAOKUN_DIR/patches/el2/*.patch
+git -C $KERN_SRC commit -m "Apply EL2 patches"
+ccache -z
 
-mkdir -p $KERN_OUT_EL2
-
-make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 gaokun3_defconfig
-$KERN_SRC_EL2/scripts/config --file $KERN_OUT_EL2/.config --set-str LOCALVERSION "-gaokun3-el2"
-make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 olddefconfig
-make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 -j$(nproc)
+make -C $KERN_SRC O=$KERN_OUT_EL2 ARCH=arm64 gaokun3_defconfig
+$KERN_SRC/scripts/config --file $KERN_OUT_EL2/.config --set-str LOCALVERSION "-gaokun3-el2"
+make -C $KERN_SRC O=$KERN_OUT_EL2 ARCH=arm64 olddefconfig
+make -C $KERN_SRC O=$KERN_OUT_EL2 ARCH=arm64 -j$(nproc)
+make -C $KERN_SRC O=$KERN_OUT_EL2 ARCH=arm64 modules_prepare
 
 KREL_EL2=$(cat $KERN_OUT_EL2/include/config/kernel.release)
 echo $KREL_EL2
+ccache -s
 ```
 
 ---
@@ -172,7 +183,7 @@ ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
 # 先安装内核相关依赖以及 initramfs-tools
 apt-get install -y \
-    linux-base initramfs-tools kmod systemd-boot-efi
+    linux-base initramfs-tools kmod systemd-boot systemd-boot-efi
 
 # 安装基础网络与压缩工具（ubuntu-base 中可能缺失）
 apt-get install -y \
@@ -243,7 +254,7 @@ sudo cp $KERN_OUT/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb \
 
 # 如果需要 EL2，再安装第二套 EL2 内核与 DTB
 if [ -n "$KREL_EL2" ]; then
-    sudo make -C $KERN_SRC_EL2 O=$KERN_OUT_EL2 ARCH=arm64 INSTALL_MOD_PATH=$ROOTFS_DIR modules_install
+    sudo make -C $KERN_SRC O=$KERN_OUT_EL2 ARCH=arm64 INSTALL_MOD_PATH=$ROOTFS_DIR modules_install
     sudo rm -f $ROOTFS_DIR/lib/modules/$KREL_EL2/{build,source}
     sudo cp $KERN_OUT_EL2/arch/arm64/boot/Image \
         $ROOTFS_DIR/boot/vmlinuz-$KREL_EL2
@@ -397,7 +408,7 @@ EOF
 if [ -n "$KREL_EL2" ]; then
     mkdir -p /boot/efi/gaokun3/ubuntu/$KREL_EL2
     mkdir -p /boot/efi/EFI/systemd/drivers
-    mkdir -p /boot/efi/firmware
+    mkdir -p /boot/efi/firmware/qcom/sc8280xp/HUAWEI/gaokun3
 
     cp /boot/vmlinuz-$KREL_EL2 /boot/efi/gaokun3/ubuntu/$KREL_EL2/linux
     cp /boot/initrd.img-$KREL_EL2 /boot/efi/gaokun3/ubuntu/$KREL_EL2/initrd
@@ -415,6 +426,16 @@ initrd /gaokun3/ubuntu/${KREL_EL2}/initrd
 devicetree /gaokun3/ubuntu/${KREL_EL2}/sc8280xp-huawei-gaokun3-el2.dtb
 options root=UUID=${ROOT_UUID} clk_ignore_unused pd_ignore_unused arm64.nopauth iommu.passthrough=0 iommu.strict=0 pcie_aspm.policy=powersupersave modprobe.blacklist=simpledrm efi=noruntime fbcon=rotate:1 usbhid.quirks=0x12d1:0x10b8:0x20000000 consoleblank=0 loglevel=4 psi=1
 EOF
+
+    cp $GAOKUN_DIR/tools/el2/slbounceaa64.efi /boot/efi/EFI/systemd/drivers/
+    cp $GAOKUN_DIR/tools/el2/qebspilaa64.efi /boot/efi/EFI/systemd/drivers/
+    cp $GAOKUN_DIR/tools/el2/tcblaunch.exe /boot/efi/
+    cp /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcadsp8280.mbn \
+       /boot/efi/firmware/qcom/sc8280xp/HUAWEI/gaokun3/
+    cp /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qccdsp8280.mbn \
+       /boot/efi/firmware/qcom/sc8280xp/HUAWEI/gaokun3/
+    cp /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcslpi8280.mbn \
+       /boot/efi/firmware/qcom/sc8280xp/HUAWEI/gaokun3/
 fi
 
 exit
@@ -423,18 +444,6 @@ exit
 ### 4. 收尾清理
 
 ```bash
-if [ -n "$KREL_EL2" ]; then
-    sudo mkdir -p $MNT/boot/efi/EFI/systemd/drivers
-    sudo mkdir -p $MNT/boot/efi/firmware
-    sudo cp $GAOKUN_DIR/tools/el2/slbounceaa64.efi \
-        $MNT/boot/efi/EFI/systemd/drivers/
-    sudo cp $GAOKUN_DIR/tools/el2/qebspilaa64.efi \
-        $MNT/boot/efi/EFI/systemd/drivers/
-    sudo cp $GAOKUN_DIR/tools/el2/tcblaunch.exe \
-        $MNT/boot/efi/
-    sudo cp -r $MNT/lib/firmware/qcom $MNT/boot/efi/firmware/
-fi
-
 sync
 cleanup_mounts
 sudo losetup -d $LOOP

@@ -43,9 +43,10 @@ jobs:
       GAOKUN_DIR: ${{ github.workspace }}
       WORKDIR: ${{ github.workspace }}/build-packages
       KERN_SRC: ${{ github.workspace }}/build-packages/mainline-linux
-      KERN_OUT_BASE: ${{ github.workspace }}/build-packages/kernel-out
+      KERN_SRC_BASE: ${{ github.workspace }}/build-packages/mainline-linux-base
+      KERN_OUT: ${{ github.workspace }}/build-packages/kernel-out
+      KERN_SRC_EL2: ${{ github.workspace }}/build-packages/mainline-linux
       KERN_OUT_EL2: ${{ github.workspace }}/build-packages/kernel-out-el2
-      KERN_SRC_EL2: ${{ github.workspace }}/build-packages/mainline-linux-el2
       ARTIFACT_DIR: ${{ github.workspace }}/build-packages/artifacts
 
     steps:

@@ -160,7 +160,9 @@ find /sys/firmware/devicetree -name firmware-name -exec cat {} + | xargs -0n1
 3. 在 EFI 分区根目录放置：
    - `\tcblaunch.exe`
 4. 在 EFI 分区顶层放置：
-   - `\firmware\...`
+   - `\firmware\qcom\sc8280xp\HUAWEI\gaokun3\qcadsp8280.mbn`
+   - `\firmware\qcom\sc8280xp\HUAWEI\gaokun3\qccdsp8280.mbn`
+   - `\firmware\qcom\sc8280xp\HUAWEI\gaokun3\qcslpi8280.mbn`
 5. 通过 `systemd-boot` 选择 EL2 菜单项
 
 建议的目录结构如下：
@@ -213,7 +215,9 @@ ls /sys/class/remoteproc/
 ## 10. "EL2 正常但音频无效"排查顺序
 
 1. 确认是否已部署 `qebspilaa64.efi`
-2. 确认 ESP 顶层 `/firmware/...` 目录是否存在，且文件名与设备树中的 `firmware-name` 属性一致
+2. 确认 ESP 顶层 `/firmware/...` 目录是否存在，当前最小需求为
+   `qcadsp8280.mbn`、`qccdsp8280.mbn`、`qcslpi8280.mbn`
+   且文件名与设备树中的 `firmware-name` 属性一致
 3. 确认 EL2 菜单项是否已加载 `-el2.dtb`
 4. 确认 EL2 菜单项是否使用了 `-gaokun3-el2` 内核
 5. 确认内核是否包含 qebspil 对应的 remoteproc/PAS 补丁

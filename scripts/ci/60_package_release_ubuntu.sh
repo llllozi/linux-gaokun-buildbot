@@ -30,7 +30,7 @@ EOF
   EL2_LOGIN_BLOCK="## EL2 Payload
 
 - Includes systemd-boot EL2 menu entry
-- Includes \`slbounceaa64.efi\`, \`qebspilaa64.efi\`, \`tcblaunch.exe\`, and ESP \`/firmware/qcom\`
+- Includes \`slbounceaa64.efi\`, \`qebspilaa64.efi\`, \`tcblaunch.exe\`, and the three DSP firmware blobs in ESP \`/firmware/qcom/sc8280xp/HUAWEI/gaokun3/\`
 
 "
 fi

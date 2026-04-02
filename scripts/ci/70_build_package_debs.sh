@@ -9,12 +9,12 @@ set -euo pipefail
 
 BUILD_EL2="${BUILD_EL2:-false}"
 KERN_SRC_BASE="${KERN_SRC_BASE:-${KERN_SRC:-}}"
-KERN_OUT_BASE="${KERN_OUT_BASE:-${KERN_OUT:-}}"
-KERN_SRC_EL2="${KERN_SRC_EL2:-$WORKDIR/mainline-linux-el2}"
-KERN_OUT_EL2="${KERN_OUT_EL2:-$WORKDIR/kernel-out-el2}"
+KERN_OUT="${KERN_OUT:-}"
+KERN_SRC_EL2="${KERN_SRC_EL2:-${KERN_SRC:-}}"
+KERN_OUT_EL2="${KERN_OUT_EL2:-}"
 
 : "${KERN_SRC_BASE:?missing KERN_SRC_BASE}"
-: "${KERN_OUT_BASE:?missing KERN_OUT_BASE}"
+: "${KERN_OUT:?missing KERN_OUT}"
 
 BASE_KREL="$(cat "$WORKDIR/kernel-release.txt")"
 EL2_KREL=""
@@ -157,10 +157,11 @@ build_firmware_package() {
   FIRMWARE_DEB="$firmware_deb"
 }
 
-build_kernel_variant "standard" "" "$KERN_SRC_BASE" "$KERN_OUT_BASE" "$BASE_KREL" \
+build_kernel_variant "standard" "" "$KERN_SRC_BASE" "$KERN_OUT" "$BASE_KREL" \
   "sc8280xp-huawei-gaokun3.dtb"
 
 if [[ "$BUILD_EL2" == "true" ]]; then
+  : "${KERN_OUT_EL2:?missing KERN_OUT_EL2}"
   if [[ -z "$EL2_KREL" ]]; then
     echo "BUILD_EL2=true but kernel-release-el2.txt is missing" >&2
     exit 1
@@ -233,5 +234,6 @@ cat >"$ARTIFACT_DIR/package-release-body.md" <<EOF
 - \`${IMAGE_DEB_STANDARD}\`
 - \`${MODULES_DEB_STANDARD}\`
 - \`${HEADERS_DEB_STANDARD}\`
-${EL2_RELEASE_BLOCK}- \`${FIRMWARE_DEB}\`
+${EL2_RELEASE_BLOCK}
+- \`${FIRMWARE_DEB}\`
 EOF
