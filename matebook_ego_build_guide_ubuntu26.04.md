@@ -77,7 +77,6 @@ fi
 ## 第二步：编译内核
 
 先编译标准内核。
-当前触摸屏方案已经统一为内核内的 Himax HX83121A SPI 驱动，不再额外安装 DKMS：
 
 ```bash
 cd $KERN_SRC
@@ -183,7 +182,10 @@ ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
 # 先安装内核相关依赖以及 initramfs-tools
 apt-get install -y \
-    linux-base initramfs-tools kmod systemd-boot systemd-boot-efi
+    linux-base initramfs-tools kmod
+
+apt-get install -y --no-install-recommends \
+    systemd-boot systemd-boot-efi
 
 # 安装基础网络与压缩工具（ubuntu-base 中可能缺失）
 apt-get install -y \

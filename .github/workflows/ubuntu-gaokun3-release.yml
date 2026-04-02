@@ -225,7 +225,10 @@ jobs:
             update-locale LANG=zh_CN.UTF-8 LANGUAGE=zh_CN:en_US:en LC_MESSAGES=zh_CN.UTF-8
 
             apt-get install -y \
-              linux-base initramfs-tools kmod systemd-boot systemd-boot-efi
+              linux-base initramfs-tools kmod
+
+            apt-get install -y --no-install-recommends \
+              systemd-boot systemd-boot-efi
 
             # Base system tools (not user-configurable)
             apt-get install -y \
