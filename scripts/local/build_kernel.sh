@@ -16,8 +16,8 @@ if [[ "$DISTRO" != "ubuntu" && "$DISTRO" != "fedora" ]]; then
 fi
 
 # Ask and install minimal build toolchain based on distribution
-read -r -p "Install necessary minimal kernel build toolchain? [Y/n]: " install_deps
-install_deps=${install_deps:-Y}
+read -r -p "Install necessary minimal kernel build toolchain? [y/N] [default: n]: " install_deps
+install_deps=${install_deps:-n}
 if [[ "$install_deps" =~ ^([yY][eE][sS]|[yY])$ ]]; then
     echo "Installing build dependencies for $DISTRO..."
     if [ "$DISTRO" == "ubuntu" ]; then
@@ -43,11 +43,12 @@ elif [ -d /usr/lib/ccache ]; then
     export PATH=/usr/lib/ccache:$PATH
 fi
 
-read -r -p "Build EL2 kernel? (Y: only EL2, n: only standard, both: build both) [n]: " el2_choice
+read -r -p "Build EL2 kernel? (Y: only EL2, n: only standard, both: build both) [default: n]: " el2_choice
 el2_choice=${el2_choice:-n}
 
 if [ ! -f "$KERN_SRC/arch/arm64/configs/gaokun3_defconfig" ]; then
-    read -r -p "gaokun3_defconfig not found in kernel directory. Pull kernel and apply patches? [y/N]: " response
+    read -r -p "gaokun3_defconfig not found in kernel directory. Pull kernel and apply patches? [y/N] [default: N]: " response
+    response=${response:-N}
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
         if [ ! -d "$GAOKUN_DIR" ]; then
             echo "linux-gaokun-buildbot not found. Cloning..."
@@ -55,7 +56,7 @@ if [ ! -f "$KERN_SRC/arch/arm64/configs/gaokun3_defconfig" ]; then
             git clone https://github.com/KawaiiHachimi/linux-gaokun-buildbot "$GAOKUN_DIR"
         fi
         
-        read -r -p "Use Chinese mirror (mirrors.bfsu.edu.cn) for Linux kernel? [Y/n]: " mirror_choice
+        read -r -p "Use Chinese mirror (mirrors.bfsu.edu.cn) for Linux kernel? [Y/n] [default: Y]: " mirror_choice
         mirror_choice=${mirror_choice:-Y}
         if [[ "$mirror_choice" =~ ^([nN][oO]|[nN])$ ]]; then
             KERNEL_URL="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
@@ -167,6 +168,14 @@ build_kernel() {
 
     local krel=$(cat "$out_dir"/include/config/kernel.release)
     echo "KREL ($mode): $krel"
+
+    # Prompt for installation
+    read -r -p "Compilation of $mode kernel finished. Install this kernel ($krel)? [Y/n] [default: Y]: " do_install
+    do_install=${do_install:-Y}
+    if [[ ! "$do_install" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+        echo "Skipping installation for $mode kernel."
+        return 0
+    fi
 
     # Distribution-specific configuration
     local initrd_src
@@ -308,4 +317,4 @@ if command -v ccache >/dev/null 2>&1; then
     echo "----------------------------------------"
 fi
 
-echo -e "\nDone! Kernel update completed. You can now reboot."
+echo -e "\nDone! Kernel update script finished."
