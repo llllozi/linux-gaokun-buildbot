@@ -217,7 +217,7 @@ rm -f /etc/machine-id
 systemd-machine-id-setup
 MACHINE_ID="$(cat /etc/machine-id)"
 
-bootctl --esp-path=/boot/efi install
+bootctl --no-variables --esp-path=/boot/efi install
 
 run_kernel_install() {
   local krel="$1"

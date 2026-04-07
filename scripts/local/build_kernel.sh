@@ -65,7 +65,7 @@ if [ ! -f "$KERN_SRC/arch/arm64/configs/gaokun3_defconfig" ]; then
         fi
         
         rm -rf "$KERN_SRC"
-        git clone --depth=1 "$KERNEL_URL" "$KERN_SRC" -b v7.0-rc6
+        git clone --depth=1 "$KERNEL_URL" "$KERN_SRC" -b v7.0-rc7
         cd "$KERN_SRC"
         
         # Detect and set git user info to avoid overwriting existing configuration

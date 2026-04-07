@@ -44,7 +44,7 @@ mkdir -p ~/gaokun/matebook-build-ubuntu
 cd ~/gaokun
 # 获取指定版本的 Linux 主线源码
 if [ ! -d "mainline-linux" ]; then
-    git clone --depth 1 --branch v7.0-rc6 \
+    git clone --depth 1 --branch v7.0-rc7 \
         https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git \
         mainline-linux
 fi
@@ -220,7 +220,7 @@ apt-get install -y \
     fonts-noto-color-emoji \
     fcitx5-chinese-addons \
     gnome-tweaks gnome-shell-extension-manager \
-    mpv v4l-utils vim git htop fastfetch screen \
+    mpv v4l-utils vim nano ripgrep git htop screen \
     alsa-utils pipewire-alsa \
     ssh \
     firefox
@@ -429,7 +429,7 @@ rm -f /etc/machine-id
 systemd-machine-id-setup
 MACHINE_ID=$(cat /etc/machine-id)
 
-bootctl --esp-path=/boot/efi install
+bootctl --no-variables --esp-path=/boot/efi install
 
 kernel-install --make-entry-directory=yes --entry-token=machine-id add \
     $KREL /boot/vmlinuz-$KREL /boot/initrd.img-$KREL

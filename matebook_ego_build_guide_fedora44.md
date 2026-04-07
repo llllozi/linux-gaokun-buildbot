@@ -41,7 +41,7 @@ mkdir -p ~/gaokun/matebook-build-fedora
 cd ~/gaokun
 # 获取指定版本的 Linux 主线源码
 if [ ! -d "mainline-linux" ]; then
-    git clone --depth 1 --branch v7.0-rc6 \
+    git clone --depth 1 --branch v7.0-rc7 \
         https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git \
         mainline-linux
 fi
@@ -155,7 +155,7 @@ sudo dnf --installroot=$ROOTFS_DIR --releasever=44 --forcearch=aarch64 --use-hos
     --exclude=gnome-boxes,gnome-connections,snapshot,gnome-weather,gnome-contacts,gnome-maps,simple-scan,gnome-clocks,gnome-calculator,gnome-calendar \
     install \
     @gnome-desktop \
-    fcitx5-chinese-addons gnome-tweaks gnome-extensions-app telnet mpv v4l-utils vim git htop fastfetch screen firefox
+    fcitx5-chinese-addons gnome-tweaks gnome-extensions-app telnet mpv v4l-utils vim nano ripgrep git htop fastfetch screen firefox
 
 # 安装 RPMFusion 并添加 libavcodec-freeworld（硬解视频编码支持）
 sudo dnf --installroot=$ROOTFS_DIR --releasever=44 --forcearch=aarch64 --use-host-config -y \
@@ -352,7 +352,7 @@ rm -f /etc/machine-id
 systemd-machine-id-setup
 MACHINE_ID=$(cat /etc/machine-id)
 
-bootctl --esp-path=/boot/efi install
+bootctl --no-variables --esp-path=/boot/efi install
 
 kernel-install --make-entry-directory=yes --entry-token=machine-id add \
     $KREL /boot/vmlinuz-$KREL

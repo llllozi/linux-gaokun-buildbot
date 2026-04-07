@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       ubuntu_release:
-        description: Ubuntu release version (e.g. 26.04)
+        description: Ubuntu release version (e.g. 26.04, 24.04.4)
         required: true
         default: "26.04"
       kernel_tag:
         description: Linux kernel tag
         required: true
-        default: "v7.0-rc6"
+        default: "v7.0-rc7"
       desktop_environment:
         description: Desktop environment metapackage
         required: true
@@ -18,7 +18,7 @@ on:
       extra_packages:
         description: Extra packages to install (space-separated)
         required: true
-        default: "fcitx5-chinese-addons gnome-tweaks gnome-shell-extension-manager mpv v4l-utils vim git htop fastfetch screen ssh firefox"
+        default: "language-pack-gnome-zh-hans fcitx5-chinese-addons gnome-tweaks gnome-shell-extension-manager mpv v4l-utils vim nano ripgrep git htop rsync mutter screen firefox"
       build_el2:
         description: Build and include optional -gaokun3-el2 kernel and EL2 EFI payloads
         required: true
@@ -215,7 +215,7 @@ jobs:
           sudo mount -t sysfs sys "$ROOTFS_DIR/sys"
           sudo mount -t tmpfs tmpfs "$ROOTFS_DIR/run"
 
-          sudo chroot "$ROOTFS_DIR" /bin/bash -euxo pipefail -c '
+          sudo chroot "$ROOTFS_DIR" /usr/bin/env UBUNTU_RELEASE="$UBUNTU_RELEASE" /bin/bash -euxo pipefail -c '
             export DEBIAN_FRONTEND=noninteractive
 
             apt-get update
@@ -235,7 +235,7 @@ jobs:
               iputils-ping iproute2 net-tools dnsutils traceroute \
               xz-utils unzip zip bzip2 zstd p7zip-full \
               wget curl ca-certificates gnupg lsb-release \
-              less file sudo
+              ssh less file sudo
 
             install -d -m 0755 /etc/apt/keyrings
             wget -qO- https://packages.mozilla.org/apt/repo-signing-key.gpg | \
@@ -255,13 +255,15 @@ jobs:
 
             apt-get install -y \
               '"$DESKTOP_ENVIRONMENT"' \
-              language-pack-gnome-zh-hans fonts-noto-cjk fonts-noto-color-emoji \
+              fonts-noto-cjk fonts-noto-color-emoji \
               gstreamer1.0-libav gstreamer1.0-plugins-ugly \
               alsa-utils pipewire-alsa \
               '"$EXTRA_PACKAGES"'
 
-            # We use ptyxis instead of gnome-terminal
-            apt purge --auto-remove -y gnome-terminal
+            if dpkg --compare-versions "${UBUNTU_RELEASE}" gt "25.10"; then
+                # We use ptyxis instead of gnome-terminal
+                apt purge --auto-remove -y gnome-terminal
+            fi
             apt-get clean
           '
 
