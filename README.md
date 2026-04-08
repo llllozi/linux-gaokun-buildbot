@@ -12,6 +12,7 @@ The image pipeline now uses `systemd-boot` by default and can optionally build a
 - `defconfig/`: local kernel configuration used by CI/manual builds
 - `drivers/`: local mirrors of the patched driver sources kept in the patch series
 - `dts/`: local mirrors of the patched device tree sources kept in the patch series
+- `docs/`: bilingual usage/build guides and platform notes
 - `firmware/`: minimal firmware bundle used by the image build
 - `packaging/`: RPM spec templates for kernel and firmware packages
 - `tools/`: device-specific helper scripts, service files, and EL2 EFI payloads
@@ -53,9 +54,8 @@ The image and local-install workflows now follow the standard `kernel-install` +
 - [whitelewi1-ctrl/matebook-e-go-linux](https://github.com/whitelewi1-ctrl/matebook-e-go-linux) : The earliest repo to fix panel backlight problem, with some additional resources and modifications for Gaokun3 Linux support.
 - [gaokun on AUR](https://aur.archlinux.org/packages?O=0&K=gaokun) : Several AUR packages built for Gaokun3, including kernel and firmware packages.
 - [chenxuecong2/firmware-huawei-gaokun3](https://github.com/chenxuecong2/firmware-huawei-gaokun3) : A firmware bundle repository for Gaokun3.
-- [chiyuki0325/EGoTouchRev-Linux](https://github.com/chiyuki0325/EGoTouchRev-Linux) : The upstream Linux DKMS touchscreen driver repository now used as the basis for the preinstalled `himax-spi` touchscreen module in Fedora images.
+- [chiyuki0325/EGoTouchRev-Linux](https://github.com/chiyuki0325/EGoTouchRev-Linux) : The upstream source for the directly integrated Himax HX83121A Linux touchscreen driver and tuning algorithm in this repository.
 - [awarson2233/EGoTouchRev](https://github.com/awarson2233/EGoTouchRev) : The original Windows-side touchscreen algorithm project referenced by EGoTouchRev-Linux, and an important upstream reference for the Gaokun3 touchscreen tuning pipeline.
-- [awarson2233/EGoTouchRev-rebuild](https://github.com/awarson2233/EGoTouchRev-rebuild) : A repository focused on the touchscreen firmware and driver support for Gaokun3 on Windows.
 - [TravMurav/slbounce](https://github.com/TravMurav/slbounce) : A UEFI application that enables EL2 support and Secure Launch on Gaokun3.
 - [TravMurav/linux](https://github.com/TravMurav/linux/tree/x13s-6.18-v1.1-cxsd) : A Linux kernel tree with some useful patches for EL2 support on sc8280xp platforms.
 - [stephan-gh/qebspil](https://github.com/stephan-gh/qebspil) : A UEFI application that pre-launches the DSP firmware on Qualcomm platforms, which can be used in the boot chain before launching Linux.

@@ -290,8 +290,16 @@ jobs:
           set -euxo pipefail
           sudo mkdir -p \
             "$ROOTFS_DIR/usr/local/bin" \
+            "$ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner" \
             "$ROOTFS_DIR/etc/systemd/system" \
+            "$ROOTFS_DIR/usr/share/applications" \
             "$ROOTFS_DIR/usr/share/alsa/ucm2/Qualcomm/sc8280xp"
+          sudo cp "$GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune" "$ROOTFS_DIR/usr/local/bin/"
+          sudo cp "$GAOKUN_DIR/tools/touchscreen-tuner/tune.py" \
+            "$ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/"
+          sudo cp "$GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune.desktop" \
+            "$ROOTFS_DIR/usr/share/applications/"
+          sudo chmod +x "$ROOTFS_DIR/usr/local/bin/touchscreen-tune"
           sudo cp "$GAOKUN_DIR/tools/touchpad/huawei-tp-activate.py" "$ROOTFS_DIR/usr/local/bin/"
           sudo cp "$GAOKUN_DIR/tools/touchpad/huawei-touchpad.service" "$ROOTFS_DIR/etc/systemd/system/"
           sudo chmod +x "$ROOTFS_DIR/usr/local/bin/huawei-tp-activate.py"

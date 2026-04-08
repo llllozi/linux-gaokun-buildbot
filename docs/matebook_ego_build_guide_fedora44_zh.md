@@ -219,25 +219,40 @@ sudo cp -r $FW_REPO/. $ROOTFS_DIR/lib/firmware/
 
 # 安装项目内的设备专属脚本与服务
 sudo mkdir -p $ROOTFS_DIR/usr/local/bin
+sudo mkdir -p $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner
 sudo mkdir -p $ROOTFS_DIR/etc/systemd/system
 sudo mkdir -p $ROOTFS_DIR/usr/share/alsa/ucm2/Qualcomm/sc8280xp
+sudo mkdir -p $ROOTFS_DIR/usr/share/applications
 
+# 触摸屏调参工具和桌面入口
+sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune \
+    $ROOTFS_DIR/usr/local/bin/touchscreen-tune
+sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/tune.py \
+    $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/tune.py
+sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune.desktop \
+    $ROOTFS_DIR/usr/share/applications/touchscreen-tune.desktop
+sudo chmod +x $ROOTFS_DIR/usr/local/bin/touchscreen-tune
+
+# 触控板激活脚本和服务
 sudo cp $GAOKUN_DIR/tools/touchpad/huawei-tp-activate.py \
     $ROOTFS_DIR/usr/local/bin/
 sudo cp $GAOKUN_DIR/tools/touchpad/huawei-touchpad.service \
     $ROOTFS_DIR/etc/systemd/system/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/huawei-tp-activate.py
 
+# GDM 显示器同步脚本和服务
 sudo cp $GAOKUN_DIR/tools/monitors/gdm-monitor-sync \
     $ROOTFS_DIR/usr/local/bin/
 sudo cp $GAOKUN_DIR/tools/monitors/gdm-monitor-sync.service \
     $ROOTFS_DIR/etc/systemd/system/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/gdm-monitor-sync
 
+# 蓝牙地址修补脚本和服务
 sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.py \
     $ROOTFS_DIR/usr/local/bin/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/patch-nvm-bdaddr.py
 
+# 音频 UCM 配置
 sudo cp $GAOKUN_DIR/tools/audio/sc8280xp.conf \
     $ROOTFS_DIR/usr/share/alsa/ucm2/Qualcomm/sc8280xp/
 ```
@@ -408,7 +423,7 @@ exit
 
 ### 触屏驱动鸣谢
 
-- [chiyuki0325/EGoTouchRev-Linux](https://github.com/chiyuki0325/EGoTouchRev-Linux)：本仓库 Fedora 镜像中预装的 `himax-spi` DKMS 触屏驱动来源与主要上游参考。
+- [chiyuki0325/EGoTouchRev-Linux](https://github.com/chiyuki0325/EGoTouchRev-Linux)：本仓库直接集成的 `himax_hx83121a_spi` 触屏驱动与调参算法的主要上游来源。
 - [awarson2233/EGoTouchRev](https://github.com/awarson2233/EGoTouchRev)：EGoTouchRev-Linux 所参考的 Windows 侧触控算法项目，也是本方案触摸算法调参与行为的重要上游来源。
 
 ### 4. 收尾清理
