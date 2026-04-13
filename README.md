@@ -38,12 +38,12 @@ The package pipeline builds and installs dedicated package sets:
 
 ### Patch Sources
 
-- `0001` to `0009` and `0017`: adapted from [right-0903/linux-gaokun](https://github.com/right-0903/linux-gaokun) for the base SC8280XP / gaokun3 enablement, display bring-up, EC suspend/resume, ADSP FastRPC, and DSI stability work
+- `0001` to `0009` and `0020`: adapted from [right-0903/linux-gaokun](https://github.com/right-0903/linux-gaokun) for the base SC8280XP / gaokun3 enablement, display bring-up, EC suspend/resume, ADSP FastRPC, and DSI stability work
 - `0010`: adapted from [whitelewi1-ctrl/matebook-e-go-linux](https://github.com/whitelewi1-ctrl/matebook-e-go-linux) to avoid setting `USE_BDADDR_PROPERTY` when the adapter address is invalid
 - `0011`: local change in this repository to enable DSC and allow 60 Hz / 120 Hz switching
 - `0012`: adapted from [chiyuki0325/EGoTouchRev-Linux](https://github.com/chiyuki0325/EGoTouchRev-Linux) to add the Himax HX83121A SPI touchscreen driver
 - `0013`: adapted from [TheUnknownThing/linux-gaokun](https://github.com/TheUnknownThing/linux-gaokun) to improve UCSI handling and module wiring for the Type-C path
-- `0014` to `0016`: adapted from the Qualcomm Iris SC8280XP series on lore.kernel.org to add SC8280XP media/iris and Venus support: <https://lore.kernel.org/all/20260125-iris-sc8280xp-v3-2-d21861a9ea33@oss.qualcomm.com/>
+- `0014` to `0019`: adapted from the [jhovold/linux](https://github.com/jhovold/linux/commits/wip/sc8280xp-6.16) to add SC8280XP Venus support
 - `0099`: local patch in this repository to import the current DTS files and `gaokun3_defconfig`
 - EL2 `0001` to `0024`: adapted from [TravMurav/linux](https://github.com/TravMurav/linux/tree/x13s-6.18-v1.1-cxsd) for the EL2 boot path, including SMP2P handover, remoteproc attach/restart flow, SCM/SHM owner handling, and related rpmsg/QRTR/pmic_glink stability fixes
 

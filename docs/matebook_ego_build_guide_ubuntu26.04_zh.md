@@ -47,7 +47,7 @@ mkdir -p ~/gaokun/matebook-build-ubuntu
 cd ~/gaokun
 # 获取指定版本的 Linux 主线源码
 if [ ! -d "mainline-linux" ]; then
-    git clone --depth 1 --branch v7.0-rc7 \
+    git clone --depth 1 --branch v7.0 \
         https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git \
         mainline-linux
 fi

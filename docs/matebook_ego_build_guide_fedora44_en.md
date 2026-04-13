@@ -44,7 +44,7 @@ mkdir -p ~/gaokun/matebook-build-fedora
 cd ~/gaokun
 # Get specified version of Linux mainline source
 if [ ! -d "mainline-linux" ]; then
-    git clone --depth 1 --branch v7.0-rc7 \
+    git clone --depth 1 --branch v7.0 \
         https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git \
         mainline-linux
 fi
