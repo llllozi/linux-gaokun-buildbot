@@ -293,6 +293,8 @@ sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune \
     $ROOTFS_DIR/usr/local/bin/touchscreen-tune
 sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/tune.py \
     $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/tune.py
+sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/tune-icon.svg \
+    $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/tune-icon.svg
 sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune.desktop \
     $ROOTFS_DIR/usr/share/applications/touchscreen-tune.desktop
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/touchscreen-tune
@@ -314,6 +316,8 @@ sudo chmod +x $ROOTFS_DIR/usr/local/bin/gdm-monitor-sync
 # 蓝牙地址修补脚本和服务
 sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.py \
     $ROOTFS_DIR/usr/local/bin/
+sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.service \
+    $ROOTFS_DIR/etc/systemd/system/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/patch-nvm-bdaddr.py
 
 # 音频 UCM 配置
@@ -326,6 +330,9 @@ sudo cp -a $GAOKUN_DIR/tools/image-assets/etc/. \
     $ROOTFS_DIR/etc/
 sudo cp $GAOKUN_DIR/tools/image-assets/usr/local/share/gaokun/monitors.xml \
     $ROOTFS_DIR/usr/local/share/gaokun/monitors.xml
+
+# bluetooth.conf 现在会同时加载 btqca 和 uhid，避免 BLE HoG 鼠标/键盘配对后立刻断开。
+# patch-nvm-bdaddr.service 会在 bluetooth.service 之前修补 qca/wcnhpnv21g.bin 中的 BDADDR。
 
 # 让 Ubuntu 的 initramfs-tools 在早期启动阶段就带上 DSP 固件，
 # 否则标准启动项里 remoteproc 可能在根文件系统挂载前就因找不到固件而失败
@@ -436,6 +443,25 @@ EOF
 cat > /etc/kernel/devicetree <<EOF
 qcom/sc8280xp-huawei-gaokun3.dtb
 EOF
+
+systemctl enable huawei-touchpad.service gdm-monitor-sync.service \
+    patch-nvm-bdaddr.service
+
+cat > /etc/systemd/system/gaokun-fix-x11-unix.service <<'EOF'
+[Unit]
+Description=Fix /tmp/.X11-unix ownership for Xwayland
+After=gdm.service
+Wants=gdm.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'mkdir -p /tmp/.X11-unix && chown root:root /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix'
+
+[Install]
+WantedBy=graphical.target
+EOF
+
+systemctl enable gaokun-fix-x11-unix.service
 
 run_update_initramfs() {
     local krel="$1"

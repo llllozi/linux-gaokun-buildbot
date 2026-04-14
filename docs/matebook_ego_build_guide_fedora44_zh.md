@@ -230,6 +230,8 @@ sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune \
     $ROOTFS_DIR/usr/local/bin/touchscreen-tune
 sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/tune.py \
     $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/tune.py
+sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/tune-icon.svg \
+    $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/tune-icon.svg
 sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune.desktop \
     $ROOTFS_DIR/usr/share/applications/touchscreen-tune.desktop
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/touchscreen-tune
@@ -251,6 +253,8 @@ sudo chmod +x $ROOTFS_DIR/usr/local/bin/gdm-monitor-sync
 # 蓝牙地址修补脚本和服务
 sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.py \
     $ROOTFS_DIR/usr/local/bin/
+sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.service \
+    $ROOTFS_DIR/etc/systemd/system/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/patch-nvm-bdaddr.py
 
 # 音频 UCM 配置
@@ -263,6 +267,9 @@ sudo cp -a $GAOKUN_DIR/tools/image-assets/etc/. \
     $ROOTFS_DIR/etc/
 sudo cp $GAOKUN_DIR/tools/image-assets/usr/local/share/gaokun/monitors.xml \
     $ROOTFS_DIR/usr/local/share/gaokun/monitors.xml
+
+# bluetooth.conf 现在会同时加载 btqca 和 uhid，避免 BLE HoG 鼠标/键盘配对后立刻断开。
+# patch-nvm-bdaddr.service 会在 bluetooth.service 之前修补 qca/wcnhpnv21g.bin 中的 BDADDR。
 ```
 
 ---
@@ -367,6 +374,9 @@ EOF
 cat > /etc/kernel/devicetree <<EOF
 qcom/sc8280xp-huawei-gaokun3.dtb
 EOF
+
+systemctl enable huawei-touchpad.service gdm-monitor-sync.service \
+    patch-nvm-bdaddr.service
 
 dracut --force --kver $KREL
 if [ -n "$KREL_EL2" ]; then

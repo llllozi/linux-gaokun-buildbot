@@ -230,6 +230,8 @@ sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune \
     $ROOTFS_DIR/usr/local/bin/touchscreen-tune
 sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/tune.py \
     $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/tune.py
+sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/tune-icon.svg \
+    $ROOTFS_DIR/usr/local/lib/gaokun-touchscreen-tuner/tune-icon.svg
 sudo cp $GAOKUN_DIR/tools/touchscreen-tuner/touchscreen-tune.desktop \
     $ROOTFS_DIR/usr/share/applications/touchscreen-tune.desktop
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/touchscreen-tune
@@ -251,6 +253,8 @@ sudo chmod +x $ROOTFS_DIR/usr/local/bin/gdm-monitor-sync
 # Bluetooth address patch script and service
 sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.py \
     $ROOTFS_DIR/usr/local/bin/
+sudo cp $GAOKUN_DIR/tools/bluetooth/patch-nvm-bdaddr.service \
+    $ROOTFS_DIR/etc/systemd/system/
 sudo chmod +x $ROOTFS_DIR/usr/local/bin/patch-nvm-bdaddr.py
 
 # Audio UCM configuration
@@ -263,6 +267,9 @@ sudo cp -a $GAOKUN_DIR/tools/image-assets/etc/. \
     $ROOTFS_DIR/etc/
 sudo cp $GAOKUN_DIR/tools/image-assets/usr/local/share/gaokun/monitors.xml \
     $ROOTFS_DIR/usr/local/share/gaokun/monitors.xml
+
+# bluetooth.conf now loads both btqca and uhid so BLE HoG mice/keyboards can stay connected.
+# patch-nvm-bdaddr.service patches qca/wcnhpnv21g.bin before bluetooth.service starts.
 ```
 
 ---
@@ -367,6 +374,9 @@ EOF
 cat > /etc/kernel/devicetree <<EOF
 qcom/sc8280xp-huawei-gaokun3.dtb
 EOF
+
+systemctl enable huawei-touchpad.service gdm-monitor-sync.service \
+    patch-nvm-bdaddr.service
 
 dracut --force --kver $KREL
 if [ -n "$KREL_EL2" ]; then

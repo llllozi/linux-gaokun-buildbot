@@ -113,7 +113,8 @@ WantedBy=graphical.target
 EOF
 
 systemctl enable gdm NetworkManager ssh huawei-touchpad.service \
-  gaokun-fix-x11-unix.service gdm-monitor-sync.service || true
+  gaokun-fix-x11-unix.service gdm-monitor-sync.service \
+  patch-nvm-bdaddr.service || true
 
 cat >> /etc/initramfs-tools/modules <<'MODEOF'
 # Storage and USB
