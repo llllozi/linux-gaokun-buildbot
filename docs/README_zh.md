@@ -16,7 +16,7 @@
 - `dts/`：补丁系列中修改过的设备树源码本地镜像
 - `docs/`：中英文使用/构建指南与平台说明
 - `firmware/`：镜像构建使用的最小固件集
-- `packaging/`：内核和固件包的 RPM spec 模板
+- `packaging/`：各发行版内核和固件包的打包模板和元数据
 - `tools/`：设备专属辅助脚本、服务文件和 EL2 EFI 载荷
 - `scripts/ci/`：工作流构建、镜像创建和打包脚本
 - `scripts/local/`：一些可在本地设备上运行的实用脚本
@@ -43,7 +43,7 @@
 - `0011`：本仓库内的本地改动，用于启用 DSC 以及 60 Hz / 120 Hz 切换
 - `0012`：来自 [chiyuki0325/EGoTouchRev-Linux](https://github.com/chiyuki0325/EGoTouchRev-Linux)，用于加入 Himax HX83121A SPI 触摸屏驱动
 - `0013`：来自 [TheUnknownThing/linux-gaokun](https://github.com/TheUnknownThing/linux-gaokun)，用于改进 Type-C 路径的 UCSI 处理和模块接线
-- `0014` 到 `0016`：来自 lore.kernel.org 上的 Qualcomm Iris SC8280XP 系列补丁，用于加入 SC8280XP 的 media/iris 和 Venus 支持：<https://lore.kernel.org/all/20260125-iris-sc8280xp-v3-2-d21861a9ea33@oss.qualcomm.com/>
+- `0014` 到 `0019`：来自 [jhovold/linux](https://github.com/jhovold/linux/commits/wip/sc8280xp-6.16), 为高通 SC8280XP 平台 添加 Venus 视频编解码驱动支持
 - `0099`：本仓库内的本地补丁，用于导入当前的 DTS 文件和 `gaokun3_defconfig`
 - EL2 `0001` 到 `0024`：来自 [TravMurav/linux](https://github.com/TravMurav/linux/tree/x13s-6.18-v1.1-cxsd)，用于补齐 EL2 启动路径中的 SMP2P 接管、remoteproc attach/restart 流程、SCM/SHM owner 处理，以及 rpmsg / QRTR / pmic_glink 相关稳定性修复
 

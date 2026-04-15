@@ -16,7 +16,7 @@ The image pipeline now uses `systemd-boot` by default and can optionally build a
 - `dts/`: local mirrors of the patched device tree sources kept in the patch series
 - `docs/`: bilingual usage/build guides and platform notes
 - `firmware/`: minimal firmware bundle used by the image build
-- `packaging/`: RPM spec templates for kernel and firmware packages
+- `packaging/`: distro kernel and firmware package templates and metadata
 - `tools/`: device-specific helper scripts, service files, and EL2 EFI payloads
 - `scripts/ci/`: workflow build, image creation, and packaging scripts
 - `scripts/local/`: some useful scripts that can be run on the local device

@@ -127,7 +127,7 @@ EOF
   prepare_tarball "$devel_tar" "$devel_stage"
 
   render_spec_template \
-    "$GAOKUN_DIR/packaging/kernel-gaokun3.spec.in" \
+    "$GAOKUN_DIR/packaging/rpm/kernel-gaokun3.spec.in" \
     "$RPM_TOPDIR/SPECS/${kernel_pkg}.spec" \
     "@PKG_NAME@" "$kernel_pkg" \
     "@SOURCE_NAME@" "$kernel_tar" \
@@ -136,7 +136,7 @@ EOF
     "@DTB_FILE@" "$dtb_name"
 
   render_spec_template \
-    "$GAOKUN_DIR/packaging/kernel-modules-gaokun3.spec.in" \
+    "$GAOKUN_DIR/packaging/rpm/kernel-modules-gaokun3.spec.in" \
     "$RPM_TOPDIR/SPECS/${modules_pkg}.spec" \
     "@PKG_NAME@" "$modules_pkg" \
     "@SOURCE_NAME@" "$modules_tar" \
@@ -145,7 +145,7 @@ EOF
     "@REQUIRES_KERNEL@" "$kernel_pkg"
 
   render_spec_template \
-    "$GAOKUN_DIR/packaging/kernel-devel-gaokun3.spec.in" \
+    "$GAOKUN_DIR/packaging/rpm/kernel-devel-gaokun3.spec.in" \
     "$RPM_TOPDIR/SPECS/${devel_pkg}.spec" \
     "@PKG_NAME@" "$devel_pkg" \
     "@SOURCE_NAME@" "$devel_tar" \
@@ -185,12 +185,11 @@ build_firmware_rpm() {
   rm -rf "$firmware_stage"
   mkdir -p "$firmware_stage/usr/lib/firmware"
   cp -a "$GAOKUN_DIR/firmware/." "$firmware_stage/usr/lib/firmware/"
-  rm -f "$firmware_stage/usr/lib/firmware/"*.spec.in
 
   prepare_tarball "$firmware_tar" "$firmware_stage"
 
   render_spec_template \
-    "$GAOKUN_DIR/packaging/linux-firmware-gaokun3.spec.in" \
+    "$GAOKUN_DIR/packaging/rpm/linux-firmware-gaokun3.spec.in" \
     "$RPM_TOPDIR/SPECS/linux-firmware-gaokun3.spec" \
     "@FW_VERSION@" "$FIRMWARE_RPM_VERSION" \
     "@SOURCE_NAME@" "$firmware_tar"

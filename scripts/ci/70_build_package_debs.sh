@@ -30,37 +30,61 @@ BUILD_TIME_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 mkdir -p "$ARTIFACT_DIR" "$DEB_TOPDIR"
 
+render_template_to_string() {
+  local template_path="$1"
+  shift
+
+  local sed_args=()
+  while [[ $# -gt 0 ]]; do
+    sed_args+=(-e "s|$1|$2|g")
+    shift 2
+  done
+
+  sed "${sed_args[@]}" "$template_path"
+}
+
 build_deb() {
-  local pkg_name="$1"
-  local stage_dir="$2"
-  local version="$3"
-  local description="$4"
-  local depends="${5:-}"
-  local arch="${6:-$DEB_ARCH}"
-  local postinst="${7:-}"
+  local template_root="$1"
+  local pkg_name="$2"
+  local stage_dir="$3"
+  local version="$4"
+  local description="$5"
+  local depends="${6:-}"
+  local arch="${7:-$DEB_ARCH}"
+  local postinst="${8:-}"
+  local postrm="${9:-}"
 
   local deb_dir="$stage_dir/DEBIAN"
   mkdir -p "$deb_dir"
-
-  cat > "$deb_dir/control" <<EOF
-Package: ${pkg_name}
-Version: ${version}
-Architecture: ${arch}
-Maintainer: cool <bilibili@att.net>
-Description: ${description}
-EOF
-
+  local depends_line=""
   if [[ -n "$depends" ]]; then
-    echo "Depends: ${depends}" >> "$deb_dir/control"
+    depends_line="Depends: ${depends}"
   fi
 
+  render_template_to_string \
+    "$template_root/DEBIAN/control.in" \
+    "@PKG_NAME@" "$pkg_name" \
+    "@PKGVER@" "$version" \
+    "@ARCH@" "$arch" \
+    "@PKG_DESC@" "$description" \
+    "@DEPENDS_LINE@" "$depends_line" >"$deb_dir/control"
+
   if [[ -n "$postinst" ]]; then
-    cat > "$deb_dir/postinst" <<POSTEOF
+    cat > "$deb_dir/postinst" <<EOF
 #!/bin/bash
 set -e
 ${postinst}
-POSTEOF
+EOF
     chmod 755 "$deb_dir/postinst"
+  fi
+
+  if [[ -n "$postrm" ]]; then
+    cat > "$deb_dir/postrm" <<EOF
+#!/bin/bash
+set -e
+${postrm}
+EOF
+    chmod 755 "$deb_dir/postrm"
   fi
 
   dpkg-deb --build --root-owner-group "$stage_dir" "$DEB_TOPDIR/${pkg_name}_${version}_${arch}.deb"
@@ -116,42 +140,63 @@ build_kernel_variant() {
   ln -s "../../../src/linux-headers-$krel" "$headers_stage/lib/modules/$krel/build"
   ln -s "../../../src/linux-headers-$krel" "$headers_stage/lib/modules/$krel/source"
 
-  read -r -d '' postinst_script <<EOF || true
-temp_kernel_dir=\$(mktemp -d)
-cleanup() {
-  for name in install.conf cmdline devicetree; do
-    if [ -f "\$temp_kernel_dir/\$name.orig" ]; then
-      cp "\$temp_kernel_dir/\$name.orig" "/etc/kernel/\$name"
-    else
-      rm -f "/etc/kernel/\$name"
-    fi
-  done
-  rm -rf "\$temp_kernel_dir"
-}
-trap cleanup EXIT
-mkdir -p /etc/kernel
-for name in install.conf cmdline devicetree; do
-  if [ -f "/etc/kernel/\$name" ]; then
-    cp "/etc/kernel/\$name" "\$temp_kernel_dir/\$name.orig"
-  fi
-done
-printf 'layout=bls\\n' > /etc/kernel/install.conf
-printf 'qcom/%s\\n' "$dtb_name" > /etc/kernel/devicetree
-update-initramfs -c -k $krel 2>/dev/null || true
-EOF
+  local image_description
+  image_description="$(
+    render_template_to_string \
+      "$GAOKUN_DIR/packaging/deb/linux-image-gaokun3/descriptions/package.in" \
+      "@PACKAGE_KIND@" "image" \
+      "@KREL@" "$krel"
+  )"
+  postinst_script="$(
+    render_template_to_string \
+      "$GAOKUN_DIR/packaging/deb/linux-image-gaokun3/DEBIAN/postinst.in" \
+      "@DTB_NAME@" "$dtb_name" \
+      "@KREL@" "$krel"
+  )"
 
-  build_deb "$image_pkg" "$image_stage" "$deb_version" \
-    "Linux kernel image for gaokun3 (${krel})" \
+  build_deb "$GAOKUN_DIR/packaging/deb/linux-image-gaokun3" \
+    "$image_pkg" "$image_stage" "$deb_version" \
+    "$image_description" \
     "linux-firmware-gaokun3" "$DEB_ARCH" \
     "$postinst_script"
 
-  build_deb "$modules_pkg" "$modules_stage" "$deb_version" \
-    "Linux kernel modules for gaokun3 (${krel})" \
-    "${image_pkg} (= $deb_version)" "$DEB_ARCH" \
-    "depmod -a $krel 2>/dev/null || true"
+  local modules_postinst
+  modules_postinst="$(
+    render_template_to_string \
+      "$GAOKUN_DIR/packaging/deb/linux-modules-gaokun3/DEBIAN/postinst.in" \
+      "@KREL@" "$krel"
+  )"
+  local modules_postrm
+  modules_postrm="$(
+    render_template_to_string \
+      "$GAOKUN_DIR/packaging/deb/linux-modules-gaokun3/DEBIAN/postrm.in" \
+      "@KREL@" "$krel"
+  )"
+  local modules_description
+  modules_description="$(
+    render_template_to_string \
+      "$GAOKUN_DIR/packaging/deb/linux-modules-gaokun3/descriptions/package.in" \
+      "@PACKAGE_KIND@" "modules" \
+      "@KREL@" "$krel"
+  )"
 
-  build_deb "$headers_pkg" "$headers_stage" "$deb_version" \
-    "Linux kernel headers for gaokun3 (${krel})" \
+  build_deb "$GAOKUN_DIR/packaging/deb/linux-modules-gaokun3" \
+    "$modules_pkg" "$modules_stage" "$deb_version" \
+    "$modules_description" \
+    "${image_pkg} (= $deb_version)" "$DEB_ARCH" \
+    "$modules_postinst" \
+    "$modules_postrm"
+
+  local headers_description
+  headers_description="$(
+    render_template_to_string \
+      "$GAOKUN_DIR/packaging/deb/linux-headers-gaokun3/descriptions/package.in" \
+      "@PACKAGE_KIND@" "headers" \
+      "@KREL@" "$krel"
+  )"
+  build_deb "$GAOKUN_DIR/packaging/deb/linux-headers-gaokun3" \
+    "$headers_pkg" "$headers_stage" "$deb_version" \
+    "$headers_description" \
     "${modules_pkg} (= $deb_version)" "$DEB_ARCH"
 
   local image_deb="${image_pkg}_${deb_version}_${DEB_ARCH}.deb"
@@ -175,26 +220,18 @@ build_firmware_package() {
   rm -rf "$firmware_stage"
   mkdir -p "$firmware_stage/lib/firmware" "$firmware_stage/etc/initramfs-tools/hooks"
   cp -a "$GAOKUN_DIR/firmware/." "$firmware_stage/lib/firmware/"
-  rm -f "$firmware_stage/lib/firmware/"*.spec.in
-  cat > "$firmware_stage/etc/initramfs-tools/hooks/gaokun3-firmware" <<'EOF'
-#!/bin/sh
-set -e
-
-. /usr/share/initramfs-tools/hook-functions
-
-copy_fw() {
-    copy_file firmware "$1" || [ "$?" -eq 1 ]
-}
-
-copy_fw /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcadsp8280.mbn
-copy_fw /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qccdsp8280.mbn
-copy_fw /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/qcslpi8280.mbn
-copy_fw /lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/audioreach-tplg.bin
-EOF
+  cp "$GAOKUN_DIR/packaging/deb/linux-firmware-gaokun3/hooks/initramfs-hook.in" \
+    "$firmware_stage/etc/initramfs-tools/hooks/gaokun3-firmware"
   chmod 0755 "$firmware_stage/etc/initramfs-tools/hooks/gaokun3-firmware"
 
-  build_deb "linux-firmware-gaokun3" "$firmware_stage" "$FIRMWARE_DEB_VERSION" \
-    "Firmware bundle for Huawei MateBook E Go 2023 (gaokun3)" "" "all"
+  local firmware_description
+  firmware_description="$(
+    render_template_to_string \
+      "$GAOKUN_DIR/packaging/deb/linux-firmware-gaokun3/descriptions/package.in"
+  )"
+  build_deb "$GAOKUN_DIR/packaging/deb/linux-firmware-gaokun3" \
+    "linux-firmware-gaokun3" "$firmware_stage" "$FIRMWARE_DEB_VERSION" \
+    "$firmware_description" "" "all"
 
   cp "$DEB_TOPDIR/$firmware_deb" "$ARTIFACT_DIR/"
   FIRMWARE_DEB="$firmware_deb"

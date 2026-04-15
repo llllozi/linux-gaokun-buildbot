@@ -16,6 +16,7 @@ install_common_image_assets() {
     "tools/touchpad/huawei-touchpad.service:/etc/systemd/system/huawei-touchpad.service"
   )
   local data_assets=(
+    "tools/audio/sc8280xp.conf:/usr/share/alsa/ucm2/Qualcomm/sc8280xp/sc8280xp.conf"
     "tools/touchscreen-tuner/tune.py:/usr/local/lib/gaokun-touchscreen-tuner/tune.py"
     "tools/touchscreen-tuner/tune-icon.svg:/usr/local/lib/gaokun-touchscreen-tuner/tune-icon.svg"
     "tools/touchscreen-tuner/touchscreen-tune.desktop:/usr/share/applications/touchscreen-tune.desktop"
@@ -29,6 +30,7 @@ install_common_image_assets() {
     "$rootfs_dir/etc/systemd/system" \
     "$rootfs_dir/usr/local/bin" \
     "$rootfs_dir/usr/local/lib/gaokun-touchscreen-tuner" \
+    "$rootfs_dir/usr/share/alsa/ucm2/Qualcomm/sc8280xp" \
     "$rootfs_dir/usr/share/applications" \
     "$rootfs_dir/usr/local/share/gaokun"
 
