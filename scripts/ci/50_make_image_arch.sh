@@ -108,6 +108,7 @@ rm -rf /usr/lib/firmware/*
 
 pacman -U --noconfirm /tmp/gaokun-pkgs/*.pkg.tar.zst
 
+rm -f /usr/share/alsa/ucm2/Qualcomm/sc8280xp/sc8280xp.conf
 pacman -S --noconfirm --needed \
   base sudo networkmanager openssh grub efibootmgr mkinitcpio \
   wireless-regdb iwd btrfs-progs alsa-utils pipewire pipewire-alsa \
@@ -208,6 +209,8 @@ EOF
 rm -rf /tmp/gaokun-pkgs
 pacman -Scc --noconfirm || true
 CHROOT_EOF
+
+install_common_image_assets "$MNT" "$GAOKUN_DIR"
 
 if [[ "$BUILD_EL2" == "true" && -n "$KREL_EL2" ]]; then
   install_el2_efi_payloads "$MNT" "$GAOKUN_DIR"
