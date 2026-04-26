@@ -57,6 +57,8 @@ sudo mount "${LOOP}p1" "$MNT/boot/efi"
 
 sudo rsync -aHAX "$ROOTFS_DIR/" "$MNT/"
 install_common_image_assets "$MNT" "$GAOKUN_DIR"
+sudo rm -f "$MNT/etc/resolv.conf"
+sudo cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 
 sudo tee "$MNT/etc/fstab" >/dev/null <<EOF
 UUID=${ROOT_UUID}  /         ext4  errors=remount-ro,noatime  0  1
@@ -196,6 +198,10 @@ fi
 
 rm -f /etc/machine-id
 systemd-machine-id-setup
+cat > /etc/resolv.conf <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
 rm -rf /tmp/gaokun-pkgs
 pacman -Scc --noconfirm || true
 CHROOT_EOF
