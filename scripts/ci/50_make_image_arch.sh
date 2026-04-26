@@ -99,8 +99,11 @@ pacman-key --init
 pacman-key --populate archlinuxarm
 pacman -Syu --noconfirm
 
-pacman -Rdd --noconfirm linux-aarch64 linux-aarch64-headers linux-firmware \
-  linux-firmware-atheros linux-firmware-qcom || true
+for stock_pkg in \
+  linux-aarch64 linux-aarch64-headers linux-firmware \
+  linux-firmware-atheros linux-firmware-qcom; do
+  pacman -Rdd --noconfirm "$stock_pkg" || true
+done
 rm -rf /usr/lib/firmware/*
 
 pacman -U --noconfirm /tmp/gaokun-pkgs/*.pkg.tar.zst
