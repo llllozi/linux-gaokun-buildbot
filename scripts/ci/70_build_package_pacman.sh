@@ -116,7 +116,7 @@ build_kernel_variant() {
         "$kernel_stage/usr/lib/modules/$krel/source"
   ln -s "../../../src/${headers_pkg}" "$kernel_stage/usr/lib/modules/$krel/build"
   ln -s "../../../src/${headers_pkg}" "$kernel_stage/usr/lib/modules/$krel/source"
-  depmod -b "$kernel_stage" -a "$krel"
+  depmod -b "$kernel_stage/usr" -a "$krel"
 
   rsync -a --delete --exclude '.git' "$src_dir/" "$headers_tree/"
   rsync -a "$out_dir/" "$headers_tree/"
