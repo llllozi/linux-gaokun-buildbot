@@ -1,0 +1,225 @@
+name: Build Image - Arch Linux ARM Gaokun3
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch_mirror_url:
+        description: Arch Linux ARM mirror base URL
+        required: true
+        default: "http://fl.us.mirror.archlinuxarm.org"
+      kernel_tag:
+        description: Linux kernel tag
+        required: true
+        default: "v7.0"
+      desktop_environment:
+        description: Desktop environment packages
+        required: true
+        default: "gnome gdm"
+      extra_packages:
+        description: Extra packages to install (space-separated)
+        required: true
+        default: "fcitx5-chinese-addons gnome-tweaks mpv v4l-utils vim nano ripgrep git htop fastfetch screen firefox"
+      build_el2:
+        description: Build and include optional -gaokun3-el2 kernel and EL2 EFI payloads
+        required: true
+        default: false
+        type: boolean
+      rebuild_package_pacman:
+        description: Rebuild gaokun pacman packages before image build
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-package-pacman:
+    if: ${{ github.event.inputs.rebuild_package_pacman == 'true' }}
+    uses: ./.github/workflows/gaokun3-package-pacman.yml
+    with:
+      kernel_tag: ${{ github.event.inputs.kernel_tag }}
+      build_el2: ${{ github.event.inputs.build_el2 == 'true' }}
+    secrets: inherit
+
+  build-and-release:
+    needs: build-package-pacman
+    if: ${{ !cancelled() && (needs.build-package-pacman.result == 'success' || needs.build-package-pacman.result == 'skipped') }}
+    runs-on: ubuntu-24.04-arm
+    env:
+      TZ: UTC
+      ARCH_MIRROR_URL: ${{ github.event.inputs.arch_mirror_url }}
+      KERNEL_TAG: ${{ github.event.inputs.kernel_tag }}
+      DESKTOP_ENVIRONMENT: ${{ github.event.inputs.desktop_environment }}
+      EXTRA_PACKAGES: ${{ github.event.inputs.extra_packages }}
+      BUILD_EL2: ${{ github.event.inputs.build_el2 }}
+      IMAGE_SIZE: 12G
+      IMAGE_CHUNK_SIZE: 1900M
+      GAOKUN_DIR: ${{ github.workspace }}
+      WORKDIR: ${{ github.workspace }}/build-arch
+      ROOTFS_DIR: ${{ github.workspace }}/build-arch/rootfs
+      ARTIFACT_DIR: ${{ github.workspace }}/build-arch/artifacts
+      PACKAGE_PACMAN_DIR: ${{ github.workspace }}/build-arch/package-pacman
+      IMAGE_FILE: ${{ github.workspace }}/build-arch/archlinuxarm-gaokun3.img
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install host dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            rsync kmod curl jq \
+            parted dosfstools e2fsprogs zstd xz-utils libarchive-tools \
+            qemu-user-static python3
+
+      - name: Prepare build workspace
+        run: |
+          set -euxo pipefail
+          mkdir -p "$WORKDIR" "$ROOTFS_DIR" "$ARTIFACT_DIR" "$PACKAGE_PACMAN_DIR"
+
+      - name: Resolve package release tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+
+          if [[ "${{ github.event.inputs.rebuild_package_pacman }}" == "true" ]]; then
+            package_release_tag="${{ needs.build-package-pacman.outputs.package_release_tag }}"
+          else
+            safe_kernel_tag="${KERNEL_TAG//\//-}"
+            safe_kernel_tag="${safe_kernel_tag//[^A-Za-z0-9._-]/-}"
+            profile="std"
+            if [[ "$BUILD_EL2" == "true" ]]; then
+              profile="std-el2"
+            fi
+            prefix="gaokun3-pacman-${safe_kernel_tag}-${profile}-"
+
+            releases_json="$WORKDIR/releases.json"
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              -o "$releases_json"
+
+            package_release_tag="$(jq -r --arg prefix "$prefix" '.[] | select(.tag_name | startswith($prefix)) | .tag_name' "$releases_json" | head -n 1)"
+            if [[ -z "$package_release_tag" ]]; then
+              echo "no package release found for prefix ${prefix}" >&2
+              exit 1
+            fi
+          fi
+
+          echo "PACKAGE_RELEASE_TAG=$package_release_tag" >> "$GITHUB_ENV"
+
+      - name: Download gaokun pacman packages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+
+          api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${PACKAGE_RELEASE_TAG}"
+          release_json="$WORKDIR/package-release.json"
+
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api_url" \
+            -o "$release_json"
+
+          asset_name="package-manifest.json"
+          asset_url="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .url' "$release_json")"
+          if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
+            echo "missing asset ${asset_name} in release ${PACKAGE_RELEASE_TAG}" >&2
+            exit 1
+          fi
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            "$asset_url" \
+            -o "$PACKAGE_PACMAN_DIR/$asset_name"
+
+          manifest_path="$PACKAGE_PACMAN_DIR/package-manifest.json"
+          manifest_kernel_tag="$(jq -r '.kernel_tag' "$manifest_path")"
+          manifest_build_el2="$(jq -r '.build_el2' "$manifest_path")"
+
+          if [[ "$manifest_kernel_tag" != "$KERNEL_TAG" ]]; then
+            echo "package release kernel tag mismatch: expected ${KERNEL_TAG}, got ${manifest_kernel_tag}" >&2
+            exit 1
+          fi
+          if [[ "$BUILD_EL2" == "true" && "$manifest_build_el2" != "true" ]]; then
+            echo "package release ${PACKAGE_RELEASE_TAG} does not contain EL2 packages" >&2
+            exit 1
+          fi
+
+          asset_names=(
+            "$(jq -r '.kernels.standard.packages.kernel' "$manifest_path")"
+            "$(jq -r '.packages.firmware' "$manifest_path")"
+          )
+          if [[ "$BUILD_EL2" == "true" ]]; then
+            asset_names+=("$(jq -r '.kernels.el2.packages.kernel' "$manifest_path")")
+          fi
+
+          for asset_name in "${asset_names[@]}"; do
+            asset_url="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .url' "$release_json")"
+            if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
+              echo "missing asset ${asset_name} in release ${PACKAGE_RELEASE_TAG}" >&2
+              exit 1
+            fi
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/octet-stream" \
+              "$asset_url" \
+              -o "$PACKAGE_PACMAN_DIR/$asset_name"
+          done
+
+          jq -r '.kernels.standard.release' "$manifest_path" > "$WORKDIR/kernel-release.txt"
+          if [[ "$BUILD_EL2" == "true" ]]; then
+            jq -r '.kernels.el2.release' "$manifest_path" > "$WORKDIR/kernel-release-el2.txt"
+          else
+            rm -f "$WORKDIR/kernel-release-el2.txt"
+          fi
+
+      - name: Bootstrap Arch Linux ARM rootfs
+        run: |
+          set -euxo pipefail
+          rootfs_tar="$WORKDIR/ArchLinuxARM-aarch64-latest.tar.gz"
+          curl -fsSL "${ARCH_MIRROR_URL}/os/ArchLinuxARM-aarch64-latest.tar.gz" -o "$rootfs_tar"
+          sudo bsdtar -xpf "$rootfs_tar" -C "$ROOTFS_DIR"
+
+      - name: Create disk image and configure GRUB
+        run: |
+          chmod +x scripts/ci/50_make_image_arch.sh
+          scripts/ci/50_make_image_arch.sh
+
+      - name: Package image and generate release info
+        id: package
+        run: |
+          chmod +x scripts/ci/60_package_release_arch.sh
+          scripts/ci/60_package_release_arch.sh
+          TAG_NAME="$(cat "$WORKDIR/tag-name.txt")"
+          KREL="$(cat "$WORKDIR/kernel-release-export.txt")"
+          PACKAGE_GLOB="$(cat "$WORKDIR/package-glob.txt")"
+          RELEASE_BODY_FILE="$(cat "$WORKDIR/release-body-file.txt")"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
+          echo "kernel_release=$KREL" >> "$GITHUB_OUTPUT"
+          echo "package_glob=$PACKAGE_GLOB" >> "$GITHUB_OUTPUT"
+          echo "release_body_file=$RELEASE_BODY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifacts (workflow)
+        uses: actions/upload-artifact@v6
+        with:
+          name: archlinuxarm-gaokun3-build
+          path: |
+            ${{ steps.package.outputs.artifact_dir }}/${{ steps.package.outputs.package_glob }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2.6.1
+        with:
+          tag_name: ${{ steps.package.outputs.tag_name }}
+          name: Arch Linux ARM - gaokun3 - ${{ steps.package.outputs.kernel_release }}
+          body_path: ${{ steps.package.outputs.artifact_dir }}/${{ steps.package.outputs.release_body_file }}
+          files: |
+            ${{ steps.package.outputs.artifact_dir }}/${{ steps.package.outputs.package_glob }}
