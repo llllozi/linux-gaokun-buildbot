@@ -68,9 +68,15 @@ build_pkg() {
   local pkg_name="$2"
   local pkgver="$3"
   local pkg_file="${pkg_name}-${pkgver}-1-${PACMAN_ARCH}.pkg.tar.zst"
+  local entries=()
+  local entry
+
+  while IFS= read -r -d '' entry; do
+    entries+=("$(basename "$entry")")
+  done < <(find "$stage_dir" -mindepth 1 -maxdepth 1 -print0 | sort -z)
 
   tar --sort=name --zstd --owner=0 --group=0 --numeric-owner \
-    -C "$stage_dir" -cf "$PKG_TOPDIR/$pkg_file" .
+    -C "$stage_dir" -cf "$PKG_TOPDIR/$pkg_file" "${entries[@]}"
   cp "$PKG_TOPDIR/$pkg_file" "$ARTIFACT_DIR/$pkg_file"
   printf '%s' "$pkg_file"
 }
